@@ -116,6 +116,7 @@ __pypackages__/
 celerybeat-schedule
 celerybeat.pid
 
+src/*.json
 # SageMath parsed files
 *.sage.py
 
@@ -159,3 +160,4 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 Session.vim
+*/
