@@ -190,6 +190,12 @@ class CourseSubMenu(Menu):
             self.window.addstr(1 + index, 1, msg, mode)
         self.window.refresh()
         curses.doupdate()
+
+        # DEBUG: 
+        br = self.items[self.position][1]() 
+        quit
+        # DEBUG: 
+        
         while True:
             self.window.refresh()
             for index, item in enumerate(self.items):
@@ -213,21 +219,43 @@ class CourseSubMenu(Menu):
         self.window.refresh()
         curses.doupdate()
 
-    def display_assignment_info(self, assignment_id: int):
+
+    #
+    # def create_scrollable_container(stdscreen, height, width, y, x, contents):
+    #     container = stdscreen.subwin(height, width, y, x)
+    #     container.scrollok(True)  # Enable scrolling
+    #     container.box()  # Draw a box around the container
+    #     for i, line in enumerate(contents):
+    #         container.addstr(i + 1, 1, line)  # Add content to the container
+    #     return container
+    #
+
+    def display_assignment_info(self, assignment_id: int) -> int:
         assignment_name = self.assignment_id_map[assignment_id]
         assignment_descriptions = self.assignment_descriptions
-        assignment_dates = self.assignment_dates[assignment_name]
+        created_at, due_at = self.assignment_dates[assignment_name]
         assignment_points = [
             assignment["points_possible"] for assignment in self.assignment_info
         ]
-        rows, cols = self.window.getmaxyx()
-        self.window.clear()
-        self.window.border()
-        self.window.refresh()
-        self.window.clearok(1)
-        curses.doupdate()
 
-        time.sleep(20)
+        self.window.clear()
+        self.window.refresh()
+
+        rows, cols = self.window.getmaxyx()
+        side_window = self.window.subwin(rows, int(cols*0.3) , 0, 0)
+        main_window = self.window.subwin(rows, int(cols*0.7) , 0, int( cols*0.3) )
+        side_window.border()
+        main_window.border()
+        side_window.addstr(1, 1, "Assignment Info")
+
+        side_window.refresh()
+        main_window.refresh()
+
+        # fill the screen with the new info
+
+        curses.doupdate()
+        time.sleep(5)
+        exit()
         return 1
 
 
@@ -280,6 +308,13 @@ class StatusBar(Menu):
                 status_offset += len(course[0])
             self.window.refresh()
             curses.doupdate()
+            
+            # DEBUG: 
+            submenu = self.update_callback(self.course_ids[1])
+            submenu.display()
+            return submenu
+            # DEBUG: 
+
             key = self.window.getch()
             if key in [curses.KEY_ENTER, ord("\n")]:
                 subMenu = self.update_callback(self.course_ids[self.position])
@@ -361,8 +396,6 @@ _________
 
 
 def main(stdscr):
-    if curses.has_colors():
-        curses.start_color()
     convas = Convas(stdscr)
     convas.run()
 
