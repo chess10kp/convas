@@ -3,18 +3,14 @@
 import curses
 import json
 import os
-import re
-import subprocess
 import time
 from collections import namedtuple
 from curses import panel, wrapper
-from enum import Enum
 from json import loads
-from typing import Dict, Generator, Tuple
-from urllib import error, request
+# from urllib import error, request
 
 from config import Config
-from convas_requests import *
+from convas_requests import get_current_course_id,  get_current_course_names, get_current_course_name_id_map  
 from helper import Logger
 
 # while keydown != ord('q'):
@@ -232,7 +228,8 @@ class CourseSubMenu(Menu):
 
     def display_assignment_info(self, assignment_id: int) -> int:
         assignment_name = self.assignment_id_map[assignment_id]
-        assignment_descriptions = self.assignment_descriptions
+        assignment_description = self.assignment_descriptions 
+        print(assignment_description)
         created_at, due_at = self.assignment_dates[assignment_name]
         assignment_points = [
             assignment["points_possible"] for assignment in self.assignment_info
@@ -241,20 +238,25 @@ class CourseSubMenu(Menu):
         self.window.clear()
         self.window.refresh()
 
+        curses.init_pair(1, curses.COLOR_BLUE, curses.COLOR_BLACK)
+
         rows, cols = self.window.getmaxyx()
         side_window = self.window.subwin(rows, int(cols*0.3) , 0, 0)
         main_window = self.window.subwin(rows, int(cols*0.7) , 0, int( cols*0.3) )
         side_window.border()
         main_window.border()
-        side_window.addstr(1, 1, "Assignment Info")
+        side_window.addstr(0, 2, "Assignment Info", curses.A_BOLD | curses.color_pair(1) )
+
+        Logger.info(assignment_description)
+        Logger.info(self.assignment_info)
 
         side_window.refresh()
         main_window.refresh()
 
+
         # fill the screen with the new info
 
-        curses.doupdate()
-        time.sleep(5)
+        time.sleep(3)
         exit()
         return 1
 
@@ -362,23 +364,20 @@ class Convas(object):
     def run(self):
         """Main loop"""
         main_window = curses.newwin(self.height - 3, self.width, 0, 0)
-        course_menu_creator = lambda course_id: CourseSubMenu(main_window, course_id)
         main_window.border(2)
         statusbar = StatusBar(
             self.course_names,
             self.height,
             self.width,
             self.course_ids,
-            course_menu_creator,
+            lambda course_id: CourseSubMenu(main_window, course_id),
             self.switch_win_callback,
         )
         splash = """
-_________                                    
-\_   ___ \  ____   _______  _______    ______
-/    \  \/ /  _ \ /    \  \/ /\__  \  /  ___/
-\     \___(  <_> )   |  \   /  / __ \_\___ \ 
- \______  /\____/|___|  /\_/  (____  /____  >
-        \/            \/           \/     \/ 
+  ___   ___   __  __ __ __  ___   __ 
+ //    // \\  ||\ || || || // \\ (( \
+((    ((   )) ||\\|| \\ // ||=||  \\ 
+ \\__  \\_//  || \||  \V/  || || \_))
         """
 
         try:
@@ -396,6 +395,7 @@ _________
 
 
 def main(stdscr):
+    curses.use_default_colors() 
     convas = Convas(stdscr)
     convas.run()
 
