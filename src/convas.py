@@ -7,11 +7,17 @@ import time
 from collections import namedtuple
 from curses import panel, wrapper
 from json import loads
-# from urllib import error, request
 
 from config import Config
-from convas_requests import get_current_course_id,  get_current_course_names, get_current_course_name_id_map  
+from convas_requests import (
+    get_current_course_id,
+    get_current_course_name_id_map,
+    get_current_course_names,
+)
 from helper import Logger
+
+# from urllib import error, request
+
 
 # while keydown != ord('q'):
 # stdscr.clear()
@@ -55,9 +61,6 @@ class Menu(object):
         """
         self.window = stdscreen.subwin(0, 0)
         self.window.keypad(1)
-        self.panel = panel.new_panel(self.window)
-        self.panel.hide()
-        panel.update_panels()
         self.position = 0
         self.items = items
         self.items.append(("exit", "exit"))
@@ -70,20 +73,15 @@ class Menu(object):
             self.position = len(self.items) - 1
 
     def display(self):
-        self.panel.top()
-        self.panel.show()
         self.window.clear()
         curses.doupdate()
         for index, item in enumerate(self.items):
             msg = "%d. %s" % (index, item[0])
             self.window.addstr(1 + index, 1, msg, curses.A_NORMAL)
         self.window.refresh()
-        panel.update_panels()
         curses.doupdate()
 
     def run(self):
-        self.panel.top()
-        self.panel.show()
         self.window.clear()
         while True:
             self.window.refresh()
@@ -115,14 +113,13 @@ class Menu(object):
             msg = "%d. %s" % (index, item[0])
             self.window.addstr(1 + index, 1, msg, mode)
         self.window.refresh()
-        panel.update_panels()
         curses.doupdate()
 
 
 class CourseSubMenu(Menu):
     """Submenu for Course details"""
 
-    def __init__(self, stdscreen, course_id):
+    def __init__(self, stdscreen, course_id, switch_to_statusbar_callback):
         self.window = stdscreen.subwin(0, 0)
         # handle arrow keys
         self.window.keypad(1)
@@ -152,6 +149,7 @@ class CourseSubMenu(Menu):
             ]
             for assignment in self.assignment_info
         }
+        self.switch_to_statusbar_callback = switch_to_statusbar_callback
         super().__init__(
             [
                 [
@@ -162,59 +160,97 @@ class CourseSubMenu(Menu):
             ],
             stdscreen,
         )
+        self.assignment_info_headings = [
+            "Home",
+            "Announcements",
+            "Assignments",
+            "Discussions",
+            "Grades",
+            "People",
+            "Files",
+            "Syllabus",
+        ]
+
+        self.window.clear()
+        self.window.refresh()
+        rows, cols = self.window.getmaxyx()
+        self.side_window = self.window.subwin(rows, int(cols * 0.2), 0, 0)
+        self.main_window = self.window.subwin(rows, int(cols * 0.8), 0, int(cols * 0.2))
 
     def display(self):
         """Print the menu to the screen without focusing on the menu"""
         self.window.clear()
-        curses.doupdate()
-        for index, item in enumerate(self.items):
-            msg = "%d. %s" % (index, item[0])
-            self.window.addstr(1 + index, 1, msg, curses.A_NORMAL)
         self.window.refresh()
+        self.side_window.border()
+        self.main_window.border()
+        curses.doupdate()
+
+    def navigate(self, n):
+        self.position += n
+        if self.position < 0:
+            self.position = 0
+        elif self.position >= len(self.assignment_info_headings):
+            self.position = len(self.assignment_info_headings) - 1
+
+    def assignment_info_callback(self, heading: int):
+        entry = self.assignment_info_headings[heading].lower()
+        self.main_window.clear()
+        self.main_window.border()
+        if entry == "assignments":
+            pass
+        elif entry == "home":
+            assignments = [assignment["name"] for assignment in self.assignment_info]
+            for index, item in (enumerate(assignments)):
+                self.main_window.addstr(1+index, 1, item)
+        elif entry == "discussions":
+            pass
+        elif entry == "grades":
+            pass
+        elif entry == "people":
+            pass
+        elif entry == "files":
+            pass
+        elif entry == "syllabus":
+            pass
+        self.main_window.refresh()
         curses.doupdate()
 
     def run(self):
         """Print list of courses and run the main loop"""
-        self.window.clear()
-        self.window.refresh()
-        for index, item in enumerate(self.items):
+        Logger.info(self.assignment_info)
+        for index, item in enumerate(self.assignment_info_headings):
             if index == self.position:
                 mode = curses.A_REVERSE
             else:
                 mode = curses.A_NORMAL
             msg = "%d. %s" % (index, item[0])
-            self.window.addstr(1 + index, 1, msg, mode)
-        self.window.refresh()
-        curses.doupdate()
-
-        # DEBUG: 
-        br = self.items[self.position][1]() 
-        quit
-        # DEBUG: 
-        
+            self.side_window.addstr(1 + index, 1, msg, mode)
         while True:
-            self.window.refresh()
-            for index, item in enumerate(self.items):
+            self.side_window.refresh()
+            for index, item in enumerate(self.assignment_info_headings):
                 mode = curses.A_REVERSE if index == self.position else curses.A_NORMAL
-                msg = "%d. %s" % (index, item[0])
-                self.window.addstr(1 + index, 1, msg, mode)
-            self.window.refresh()
+                msg = "%s" % (item)
+                self.side_window.addstr(1 + index, 1, msg, mode)
+            self.side_window.refresh()
             curses.doupdate()
-            key = self.window.getch()
-            if key in [curses.KEY_ENTER, ord("\n")]:
-                if self.position == len(self.items) - 1:
-                    break
-                else:
-                    br = self.items[self.position][1]()
-                    if br:
-                        break
-            elif key == curses.KEY_UP or key == ord("k"):
+            key = self.side_window.getch()
+            if key == curses.KEY_UP or key == ord("k"):
                 self.navigate(-1)
             elif key == curses.KEY_DOWN or key == ord("j"):
                 self.navigate(1)
-        self.window.refresh()
-        curses.doupdate()
 
+            elif key == ord("\t"):
+                self.switch_to_statusbar_callback(self)
+
+            elif key in [curses.KEY_ENTER, ord("\n")]:
+                if self.position == len(self.assignment_info_headings) - 1:
+                    break
+                else:
+                    br = self.assignment_info_callback(int(self.position))
+                    if br:
+                        break
+        self.side_window.refresh()
+        curses.doupdate()
 
     #
     # def create_scrollable_container(stdscreen, height, width, y, x, contents):
@@ -224,11 +260,10 @@ class CourseSubMenu(Menu):
     #     for i, line in enumerate(contents):
     #         container.addstr(i + 1, 1, line)  # Add content to the container
     #     return container
-    #
 
     def display_assignment_info(self, assignment_id: int) -> int:
         assignment_name = self.assignment_id_map[assignment_id]
-        assignment_description = self.assignment_descriptions 
+        assignment_description = self.assignment_descriptions
         print(assignment_description)
         created_at, due_at = self.assignment_dates[assignment_name]
         assignment_points = [
@@ -239,22 +274,13 @@ class CourseSubMenu(Menu):
         self.window.refresh()
 
         curses.init_pair(1, curses.COLOR_BLUE, curses.COLOR_BLACK)
-
-        rows, cols = self.window.getmaxyx()
-        side_window = self.window.subwin(rows, int(cols*0.3) , 0, 0)
-        main_window = self.window.subwin(rows, int(cols*0.7) , 0, int( cols*0.3) )
-        side_window.border()
-        main_window.border()
-        side_window.addstr(0, 2, "Assignment Info", curses.A_BOLD | curses.color_pair(1) )
+        for index, entry in enumerate(self.assignment_info_headings):
+            self.side_window.addstr(
+                int(index) + 1, 2, entry, curses.A_BOLD | curses.color_pair(1)
+            )
 
         Logger.info(assignment_description)
         Logger.info(self.assignment_info)
-
-        side_window.refresh()
-        main_window.refresh()
-
-
-        # fill the screen with the new info
 
         time.sleep(3)
         exit()
@@ -265,7 +291,7 @@ class StatusBar(Menu):
     """Statusbar Class using newwin"""
 
     def __init__(
-        self, courses, height, width, course_ids, update_callback, change_win_callback
+        self, courses, height : int, width : int , course_ids , update_callback, change_win_callback
     ):
         self.window = curses.newwin(3, width, height - 3, 0)
         self.position = 0
@@ -275,6 +301,7 @@ class StatusBar(Menu):
             for course in courses
         ]
         self.update_callback = update_callback
+        self.change_win_callback = change_win_callback
 
     def navigate(self, n):
         self.position += n
@@ -310,28 +337,21 @@ class StatusBar(Menu):
                 status_offset += len(course[0])
             self.window.refresh()
             curses.doupdate()
-            
-            # DEBUG: 
-            submenu = self.update_callback(self.course_ids[1])
-            submenu.display()
-            return submenu
-            # DEBUG: 
 
             key = self.window.getch()
             if key in [curses.KEY_ENTER, ord("\n")]:
-                subMenu = self.update_callback(self.course_ids[self.position])
-                subMenu.display()
-                return subMenu
+                submenu = self.update_callback(self.course_ids[self.position]) # creates a new CourseSubMenu object
+                self.prev_win  = submenu
+                submenu.display()
+                return submenu
             elif key == ord("\t"):
                 break
             elif key == curses.KEY_BACKSPACE:
-                break
+                self.change_win_callback(False, self, self.prev_win)
             elif key == curses.KEY_LEFT or key == ord("k"):
                 self.navigate(-1)
             elif key == curses.KEY_RIGHT or key == ord("j"):
                 self.navigate(1)
-            elif key == curses.KEY_BTAB:
-                self.change_win_callback()
 
         self.window.border()
         self.window.refresh()
@@ -353,10 +373,13 @@ class Convas(object):
         self.course_menu = None
         self.height, self.width = stdscreen.getmaxyx()
 
-    def switch_win_callback(is_statusbar, statusbar, win):
-        if is_statusbar:
+    def switch_win_callback(self, switch_to_statusbar, statusbar, win):
+        if switch_to_statusbar:
             win.display()
-            # TODO: add callback to switch focus to the statusbar from the current window and  vice versa
+            selected = statusbar.run()
+            statusbar.display()
+            if selected:
+                selected.run()
         else:
             statusbar.display()
             win.run()
@@ -370,7 +393,7 @@ class Convas(object):
             self.height,
             self.width,
             self.course_ids,
-            lambda course_id: CourseSubMenu(main_window, course_id),
+            lambda course_id: CourseSubMenu(main_window, course_id, lambda win:  self.switch_win_callback(True,self,  win)),
             self.switch_win_callback,
         )
         splash = """
@@ -395,7 +418,7 @@ class Convas(object):
 
 
 def main(stdscr):
-    curses.use_default_colors() 
+    curses.use_default_colors()
     convas = Convas(stdscr)
     convas.run()
 
