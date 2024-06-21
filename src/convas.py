@@ -50,7 +50,6 @@ class Menu(object):
         self.items = items
         self.items.append(("exit", "exit"))
 
-
     def navigate(self, n):
         self.position += n
         if self.position < 0:
@@ -118,7 +117,6 @@ class CourseSubMenu(Menu):
             "Discussions",
             "Grades",
             "Quizzes",
-            "People",
             "Files",
             "Syllabus",
         ]
@@ -134,7 +132,7 @@ class CourseSubMenu(Menu):
         self.files: list[dict[str, str]] = loads(
             open(f"./files{course_id}.json").read()
         )
-        self.quizzes_info: list[dict[str, str]] = loads(
+        self.quizzes: list[dict[str, str]] = loads(
             open(f"./quizzes{course_id}.json").read()
         )
         self.assignments: list[str] = [
@@ -193,55 +191,66 @@ class CourseSubMenu(Menu):
 
     def display_main_win(self, heading: int):
         entry = self.assignment_info_headings[heading].lower()
-        self.main_window.clear()
-        self.main_window.border()
+        right_side_str, left_side_str, left_offset = None, None, None
+        _, cols = self.main_window.getmaxyx()
         if entry == "assignments":
-            assignments = [assignment["name"] for assignment in self.assignment_info]
-            while True:
-                self.main_window.refresh()
-                curses.doupdate()
-                for index, item in enumerate(assignments):
-                    self.main_window.addstr(1 + index, 1, item)
+            left_side_str = [assignment["name"] for assignment in self.assignment_info]
+
         elif entry == "home":
-            assignments = [assignment["name"] for assignment in self.assignment_info]
-            for index, item in enumerate(assignments):
-                self.main_window.addstr(1 + index, 1, item)
+            left_side_str = [assignment["name"] for assignment in self.assignment_info]
+
         elif entry == "discussions":
             pass
+
         elif entry == "grades":
-            graded_assignments = [
-                assignment
+            left_side_str = [
+                assignment["name"]
                 for assignment in self.assignment_info
                 if ("submission" in assignment.keys())
                 and assignment["submission"]["submitted_at"] != 0
             ]
-            for index, assignment in enumerate(graded_assignments):
-                left_side_str = f"{assignment['name']}"
-                right_side_str = f"{assignment['points_possible']}/ {assignment['submission']['score']}"
-                _, cols = self.main_window.getmaxyx()
-                self.main_window.addstr(1 + index, 1, left_side_str)
-                self.main_window.addstr(
-                    index + 1, cols - len(right_side_str) - 3, right_side_str
-                )
-        elif entry == "quizzes":
-            pass
-        elif entry == "people":
-            pass
-        elif entry == "files":
-            files = [file for file in self.files]
-            for index, file in enumerate(files):
-                left_side_str = " %s" % (file["display_name"])
-                right_side_str = " %s" % (file["updated_at"][:10])
-                _, cols = self.main_window.getmaxyx()
-                self.main_window.addstr(
-                    index + 1, cols - len(right_side_str) - 3, right_side_str
-                )
-                self.main_window.addstr(1 + index, 1, left_side_str)
 
-        elif entry == "syllabus":
-            pass
+            right_side_str = [
+                f"{assignment['points_possible']}/ {assignment['submission']['score']}"
+                for assignment in self.assignment_info
+                if ("submission" in assignment.keys())
+                and assignment["submission"]["submitted_at"] != 0
+            ]
+
+            left_offset = [
+                (cols - len(str(right_str)) - 3) for right_str in right_side_str
+            ]
+
+        elif entry == "quizzes":
+            left_side_str = [quiz["title"][0:20] for quiz in self.quizzes]
+            right_side_str = [f"{quiz['due_at'][:10]}" for quiz in self.quizzes]
+            left_offset = [
+                (cols - len(str(right_str)) - 3) for right_str in right_side_str
+            ]
+
+        elif entry == "files":
+            left_side_str = [file["display_name"] for file in self.files]
+            Logger.info(left_side_str)
+            right_side_str = [file["updated_at"][:10] for file in self.files]
+            left_offset = [
+                (cols - len(str(right_str)) - 3) for right_str in right_side_str
+            ]
+
+        if not left_side_str:
+            return
+        self.main_window.clear()
+        self.main_window.border()
+        for index, item in enumerate(left_side_str):
+            self.main_window.addstr(1 + index, 1, item)
+        if right_side_str:
+            Logger.info(right_side_str)
+            for index, item in enumerate(right_side_str):
+                self.main_window.addstr(
+                    1 + index,
+                    (left_offset[index] if left_offset is not None else 1),
+                    item,
+                )
         self.main_window.refresh()
-        self.side_window.border()
         self.main_window.border()
         curses.doupdate()
 
@@ -286,6 +295,7 @@ class CourseSubMenu(Menu):
 
         elif entry == "home":
             assignments = [assignment["name"] for assignment in self.assignment_info]
+            self.main_window.border()
             while True:
                 for index, assignment in enumerate(assignments):
                     mode = (
@@ -293,8 +303,8 @@ class CourseSubMenu(Menu):
                     )
                     self.main_window.addstr(1 + index, 1, assignment, mode)
 
+                self.main_window.move(self.position + 1, 1)
                 self.main_window.refresh()
-                self.main_window.border()
                 key = self.side_window.getch()
                 if key == curses.KEY_UP or key == ord("k"):
                     self.navigate(-1)
@@ -311,9 +321,9 @@ class CourseSubMenu(Menu):
             graded_assignments = [
                 assignment
                 for assignment in self.assignment_info
-                if assignment["submission"]["submitted_at"] != 0
+                if ("submission" in assignment.keys())
+                and assignment["submission"]["submitted_at"] != 0
             ]
-
             while True:
                 for index, assignment in enumerate(graded_assignments):
                     mode = (
@@ -326,15 +336,16 @@ class CourseSubMenu(Menu):
                     self.main_window.addstr(
                         index + 1, cols - len(right_side_str) - 3, right_side_str, mode
                     )
+                    self.main_window.move(self.position + 1, 1)
                     self.main_window.refresh()
-                    key = self.main_window.getch()
-                    if key == curses.KEY_UP or key == ord("k"):
-                        self.navigate(-1)
-                    elif key == curses.KEY_DOWN or key == ord("j"):
-                        if self.position < len(graded_assignments):
-                            self.navigate(1)
-                    elif key == ord("h"):
-                        break
+                key = self.main_window.getch()
+                if key == curses.KEY_UP or key == ord("k"):
+                    self.navigate(-1)
+                elif key == curses.KEY_DOWN or key == ord("j"):
+                    if self.position < len(graded_assignments):
+                        self.navigate(1)
+                elif key == ord("h"):
+                    break
 
         elif entry == "quizzes":
             pass
@@ -349,27 +360,32 @@ class CourseSubMenu(Menu):
                     left_side_str = " %s" % (file["display_name"])
                     right_side_str = " %s" % (file["updated_at"][:10])
                     _, cols = self.main_window.getmaxyx()
-                    self.main_window.addstr(
-                        index + 1, cols - len(right_side_str) - 3, right_side_str
+                    mode = (
+                        curses.A_NORMAL if index != self.position else curses.A_REVERSE
                     )
-                    self.main_window.addstr(1 + index, 1, left_side_str)
-                    self.main_window.refresh()
-                    key = self.main_window.getch()
-                    if key == curses.KEY_UP or key == ord("k"):
-                        self.navigate(-1)
-                    elif key == curses.KEY_DOWN or key == ord("j"):
-                        if self.position < len(files):
-                            self.navigate(1)
-                    elif key == ord("d"):
-                        if not file["url"]:
-                            return
-                        # TODO: prompt for file name (maybe default to the same name? )
-                        download = download_file(
-                            file["id"], self.course_id, file["display_name"], headers={}
-                        )
-                        # TODO: return errro
-                    elif key == ord("h"):
-                        break
+                    self.main_window.addstr(
+                        index + 1, cols - len(right_side_str) - 3, right_side_str, mode
+                    )
+                    self.main_window.addstr(1 + index, 1, left_side_str, mode)
+                self.main_window.move(self.position + 1, 1)
+                self.main_window.refresh()
+                key = self.main_window.getch()
+                if key == curses.KEY_UP or key == ord("k"):
+                    self.position = max(self.position - 1, 0)
+                elif key == curses.KEY_DOWN or key == ord("j"):
+                    self.position = min(self.position + 1, len(files) - 1)
+                elif key == ord("d"):
+                    if not file["url"]:
+                        return
+                    # TODO: prompt for file name (maybe default to the same name? )
+                    download = download_file(
+                        file["id"], self.course_id, file["display_name"], headers={}
+                    )
+                    if not download:
+                        pass
+                    # TODO: return errro
+                elif key == ord("h"):
+                    break
 
         elif entry == "syllabus":
             pass
@@ -378,7 +394,6 @@ class CourseSubMenu(Menu):
 
     def run(self):
         """Loop for selecting tab"""
-        Logger.info(self.assignment_info)
         for index, item in enumerate(self.assignment_info_headings):
             if index == self.position:
                 mode = curses.A_REVERSE
@@ -391,6 +406,7 @@ class CourseSubMenu(Menu):
                 mode = curses.A_REVERSE if index == self.position else curses.A_NORMAL
                 msg = "%s" % (item)
                 self.side_window.addstr(1 + index, 1, msg, mode)
+            self.side_window.move(self.position + 1, 1)
             self.side_window.refresh()
             self.side_window.border()
             curses.doupdate()
@@ -548,7 +564,7 @@ class Convas(object):
         self.course_ids: list[str] = get_current_course_id(self.course_info)
         self.course_id: int | None = None
         self.course_menu = None
-        self.height, self.width = stdscreen.getmaxyx() 
+        self.height, self.width = stdscreen.getmaxyx()
         self.status_bar: StatusBar = None
         # TODO:
         self.command_panel = panel.new_panel(stdscreen)
@@ -607,8 +623,8 @@ class Convas(object):
 
         try:
             Logger.info(f"Convas initialized with {self.height}x{self.width}")
-            y_position = (self.height - 3*6)//2
-            x_position = int(max(len(line) for line in splash.splitlines()))//2 - 5
+            y_position = (self.height - 3 * 6) // 2
+            x_position = int(max(len(line) for line in splash.splitlines())) // 2 - 5
             for i, line in enumerate(splash.split("\n")):
                 self.screen.addstr(y_position + i, x_position, line)
             self.screen.refresh()
