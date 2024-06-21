@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 import curses
 import json
@@ -15,6 +15,7 @@ from convas_requests import (
     get_current_course_id,
     get_current_course_name_id_map,
     get_current_course_names,
+    get_discussions,
 )
 from helper import Logger
 
@@ -103,15 +104,20 @@ class Menu(object):
 
 
 class CourseSubMenu(Menu):
-    """Submenu for Course details"""
-
-    def __init__(self, stdscreen, course_id, switch_to_statusbar_callback):
-        self.window = stdscreen.subwin(0, 0)
-        # handle arrow keys
+    def __init__(
+        self,
+        window: Any,
+        course_id: int,
+        switch_to_statusbar_callback: Callable[Any, None],
+        gutter_callback: Callable[None, None]
+    ):
+        self.window = window
+        self.window.keypad(1)
         self.win_index = 2  # 2 = side_window, 3 = main_window
-        self.tab_index = 0  # index of current heading
+        self.tab_index = 0
+        self.gutter_mode = gutter_callback
 
-        self.assignment_info_headings = [
+        self.tabs = [
             "Home",
             "Announcements",
             "Assignments",
@@ -122,49 +128,52 @@ class CourseSubMenu(Menu):
             "Syllabus",
         ]
 
-        self.window.keypad(1)
-        course_assignment_dates = namedtuple(
-            "course_assignment_dates", ["created_at", "due_at"]
-        )
-        self.course_id = course_id
-        self.assignment_info: list[dict[str, str]] = loads(
-            (open(f"./assignments{course_id}.json").read())
-        )  # get_assignments_request(url, headers, self.course_id)
         self.files: list[dict[str, str]] = loads(
             open(f"./files{course_id}.json").read()
         )
         self.quizzes: list[dict[str, str]] = loads(
             open(f"./quizzes{course_id}.json").read()
         )
-        self.assignments: list[str] = [
-            assignment["name"] for assignment in self.assignment_info
-        ]
+
+        if not isinstance(self.files, List):
+            self.tabs.remove("Files")
+        if not isinstance(self.quizzes, List):
+            self.tabs.remove("Quizzes")
+
+        course_assignment_dates = namedtuple(
+            "course_assignment_dates", ["created_at", "due_at"]
+        )
+        self.course_id = course_id
+        self.assignments: list[dict[str, str]] = loads(
+            (open(f"./assignments{course_id}.json").read())
+        )
         self.assignment_id_map: dict[str, str] = {
-            assignment["id"]: assignment["name"] for assignment in self.assignment_info
+            assignment["id"]: assignment["name"] for assignment in self.assignments
         }
         self.assignment_dates = {
             assignment["name"]: course_assignment_dates(
                 created_at=assignment["created_at"], due_at=assignment["due_at"]
             )
-            for assignment in self.assignment_info
+            for assignment in self.assignments
         }
         self.assignment_descriptions = {
             assignment["name"]: [
                 assignment["description"],
                 assignment["points_possible"],
             ]
-            for assignment in self.assignment_info
+            for assignment in self.assignments
         }
         self.switch_to_statusbar_callback = switch_to_statusbar_callback
+
         super().__init__(
             [
                 [
                     assignment["name"],
                     lambda: self.display_assignment_info(assignment["id"]),
                 ]
-                for assignment in self.assignment_info
+                for assignment in self.assignments
             ],
-            stdscreen,
+            window,
         )
         self.window.clear()
         self.window.refresh()
@@ -176,7 +185,7 @@ class CourseSubMenu(Menu):
         """Print the side_window to the screen"""
         self.side_window.clear()
         self.side_window.border()
-        for index, item in enumerate(self.assignment_info_headings):
+        for index, item in enumerate(self.tabs):
             msg = "%s" % (item)
             self.side_window.addstr(1 + index, 1, msg, curses.A_NORMAL)
         self.side_window.refresh()
@@ -190,33 +199,78 @@ class CourseSubMenu(Menu):
         self.position += n
         if self.position < 0:
             self.position = 0
-        elif self.position >= len(self.assignment_info_headings):
-            self.position = len(self.assignment_info_headings) - 1
+        elif self.position >= len(self.tabs):
+            self.position = len(self.tabs) - 1
 
     def display_main_win(self, heading: int):
-        entry = self.assignment_info_headings[heading].lower()
+        entry = self.tabs[heading].lower()
         right_side_str, left_side_str, right_offset = None, None, None
         _, cols = self.main_window.getmaxyx()
         if entry == "assignments":
-            left_side_str = [assignment["name"] for assignment in self.assignment_info]
+            left_side_str = [assignment["name"] for assignment in self.assignments]
 
         elif entry == "home":
-            left_side_str = [assignment["name"] for assignment in self.assignment_info]
+            # TODO
+            # { "braille_up", {
+            # 	" ", "⢀", "⢠", "⢰", "⢸",
+            # 	"⡀", "⣀", "⣠", "⣰", "⣸",
+            # 	"⡄", "⣄", "⣤", "⣴", "⣼",
+            # 	"⡆", "⣆", "⣦", "⣶", "⣾",
+            # 	"⡇", "⣇", "⣧", "⣷", "⣿"
+            # }},
+            # {"braille_down", {
+            # 	" ", "⠈", "⠘", "⠸", "⢸",
+            # 	"⠁", "⠉", "⠙", "⠹", "⢹",
+            # 	"⠃", "⠋", "⠛", "⠻", "⢻",
+            # 	"⠇", "⠏", "⠟", "⠿", "⢿",
+            # 	"⡇", "⡏", "⡟", "⡿", "⣿"
+            # }},
+            # {"block_up", {
+            # 	" ", "▗", "▗", "▐", "▐",
+            # 	"▖", "▄", "▄", "▟", "▟",
+            # 	"▖", "▄", "▄", "▟", "▟",
+            # 	"▌", "▙", "▙", "█", "█",
+            # 	"▌", "▙", "▙", "█", "█"
+            # }},
+            # {"block_down", {
+            # 	" ", "▝", "▝", "▐", "▐",
+            # 	"▘", "▀", "▀", "▜", "▜",
+            # 	"▘", "▀", "▀", "▜", "▜",
+            # 	"▌", "▛", "▛", "█", "█",
+            # 	"▌", "▛", "▛", "█", "█"
+            # }},
+            # {"tty_up", {
+            # 	" ", "░", "░", "▒", "▒",
+            # 	"░", "░", "▒", "▒", "█",
+            # 	"░", "▒", "▒", "▒", "█",
+            # 	"▒", "▒", "▒", "█", "█",
+            # 	"▒", "█", "█", "█", "█"
+            # }},
+            # {"tty_down", {
+            # 	" ", "░", "░", "▒", "▒",
+            # 	"░", "░", "▒", "▒", "█",
+            # 	"░", "▒", "▒", "▒", "█",
+            # 	"▒", "▒", "▒", "█", "█",
+            # 	"▒", "█", "█", "█", "█"
+            # }}
+
+            left_side_str = [assignment["name"] for assignment in self.assignments]
 
         elif entry == "discussions":
-            pass
+            discussions = get_discussions(self.assignments)
+            left_side_str = [assignment["name"] for assignment in discussions]
 
         elif entry == "grades":
             left_side_str = [
                 assignment["name"]
-                for assignment in self.assignment_info
+                for assignment in self.assignments
                 if ("submission" in assignment.keys())
                 and assignment["submission"]["submitted_at"] != 0
             ]
 
             right_side_str = [
                 f"{assignment['points_possible']}/ {assignment['submission']['score']}"
-                for assignment in self.assignment_info
+                for assignment in self.assignments
                 if ("submission" in assignment.keys())
                 and assignment["submission"]["submitted_at"] != 0
             ]
@@ -234,7 +288,6 @@ class CourseSubMenu(Menu):
 
         elif entry == "files":
             left_side_str = [file["display_name"] for file in self.files]
-            Logger.info(left_side_str)
             right_side_str = [file["updated_at"][:10] for file in self.files]
             right_offset = [
                 (cols - len(str(right_str)) - 3) for right_str in right_side_str
@@ -309,17 +362,20 @@ class CourseSubMenu(Menu):
 
                 if key == ord("h"):
                     break
+                elif key == ord(":"):
+                    self.gutter_mode()
+
                 for binding in bindings:
                     if key == binding[0]:
                         binding[1]()
                         continue
 
-        entry = self.assignment_info_headings[self.tab_index].lower()
+        entry = self.tabs[self.tab_index].lower()
         self.main_window.clear()
         self.main_window.border()
         _, cols = self.main_window.getmaxyx()
         if entry == "assignments":
-            assignments = [assignment["name"] for assignment in self.assignment_info]
+            assignments = [assignment["name"] for assignment in self.assignments]
             while True:
                 for index, assignment in enumerate(assignments):
                     mode = (
@@ -336,12 +392,14 @@ class CourseSubMenu(Menu):
                 elif key == curses.KEY_DOWN or key == ord("j"):
                     self.navigate(1)
 
-                # TODO: Add "o" to open in browser
                 elif key == ord("h"):
                     break
 
+                elif key == ord(":"):
+                    self.gutter_mode()
+
         elif entry == "home":
-            assignments = [assignment["name"] for assignment in self.assignment_info]
+            assignments = [assignment["name"] for assignment in self.assignments]
             main_win_loop(
                 assignments,
                 [
@@ -349,7 +407,7 @@ class CourseSubMenu(Menu):
                     (
                         ord("j"),
                         lambda: self.set_position(
-                            min(self.position + 1, len(self.assignment_info) - 1)
+                            min(self.position + 1, len(self.assignments) - 1)
                         ),
                     ),
                     (ord("o"), lambda: self.open_url()),
@@ -362,7 +420,7 @@ class CourseSubMenu(Menu):
         elif entry == "grades":
             graded_assignments = [
                 assignment
-                for assignment in self.assignment_info
+                for assignment in self.assignments
                 if ("submission" in assignment.keys())
                 and assignment["submission"]["submitted_at"] != 0
             ]
@@ -378,7 +436,7 @@ class CourseSubMenu(Menu):
                     (
                         ord("j"),
                         lambda: self.set_position(
-                            min(self.position + 1, len(self.assignment_info) - 1)
+                            min(self.position + 1, len(self.assignments) - 1)
                         ),
                     ),
                     (ord("k"), lambda: self.set_position(max(self.position - 1, 0))),
@@ -392,10 +450,23 @@ class CourseSubMenu(Menu):
         elif entry == "quizzes":
             left_side_str = [quiz["title"][0:20] for quiz in self.quizzes]
             right_side_str = [f"{quiz['due_at'][:10]}" for quiz in self.quizzes]
-            left_offset = [
+            right_offset = [
                 (cols - len(str(right_str)) - 3) for right_str in right_side_str
             ]
-            # TODO:
+            main_win_loop(
+                left_side_str,
+                [
+                    (
+                        ord("j"),
+                        lambda: self.set_position(
+                            min(self.position + 1, len(self.quizzes) - 1)
+                        ),
+                    ),
+                    (ord("k"), lambda: self.set_position(max(self.position - 1, 0))),
+                ],
+                right_side_str,
+                right_offset,
+            )
 
         elif entry == "files":
             files = [file for file in self.files]
@@ -440,7 +511,7 @@ class CourseSubMenu(Menu):
 
     def run(self):
         """Loop for selecting tab"""
-        for index, item in enumerate(self.assignment_info_headings):
+        for index, item in enumerate(self.tabs):
             if index == self.position:
                 mode = curses.A_REVERSE
             else:
@@ -448,7 +519,7 @@ class CourseSubMenu(Menu):
             msg = "%d. %s" % (index, item[0])
             self.side_window.addstr(1 + index, 1, msg, mode)
         while True:
-            for index, item in enumerate(self.assignment_info_headings):
+            for index, item in enumerate(self.tabs):
                 mode = curses.A_REVERSE if index == self.position else curses.A_NORMAL
                 msg = "%s" % (item)
                 self.side_window.addstr(1 + index, 1, msg, mode)
@@ -469,6 +540,9 @@ class CourseSubMenu(Menu):
 
             elif key == ord("\t"):
                 self.switch_to_statusbar_callback(self)
+
+            elif key == ord(":"):
+                self.gutter_mode()
 
             elif key in [curses.KEY_ENTER, ord("\n")]:
                 self.tab_index = self.position
@@ -491,38 +565,28 @@ class CourseSubMenu(Menu):
         assignment_name = self.assignment_id_map[assignment_id]
         assignment_description = self.assignment_descriptions
         created_at, due_at = self.assignment_dates[assignment_name]
-        assignment_points = [
-            assignment["points_possible"] for assignment in self.assignment_info
-        ]
 
         self.window.clear()
         self.window.refresh()
 
-        curses.init_pair(1, curses.COLOR_BLUE, curses.COLOR_BLACK)
-        for index, entry in enumerate(self.assignment_info_headings):
+        for index, entry in enumerate(self.tabs):
             self.side_window.addstr(
                 int(index) + 1, 2, entry, curses.A_BOLD | curses.color_pair(1)
             )
 
         Logger.info(assignment_description)
-        Logger.info(self.assignment_info)
-
-        time.sleep(3)
-        exit()
-        return 1
+        Logger.info(self.assignments)
 
 
 class StatusBar(Menu):
-    """Statusbar Class using newwin"""
-
     def __init__(
         self,
-        courses,
+        courses: List[str],
         height: int,
         width: int,
-        course_ids,
-        update_callback,
-        change_win_callback,
+        course_ids: List[int],
+        update_callback: Callable[int, None],
+        change_win_callback: Callable[Any, None],
     ):
         self.window = curses.newwin(3, width, height - 3, 0)
         self.position = 0
@@ -543,17 +607,15 @@ class StatusBar(Menu):
 
     def display(self):
         self.window.clear()
-        status_offset = 1
-        self.window.clear()
         self.window.border()
+        status_offset = 1
         for index, course in enumerate(self.courses):
             status_offset += 2
-            msg = "%d.%s" % (index, course[0])
+            msg = "%d.%s " % (index, course[0])
             self.window.addstr(1, status_offset + index, msg, curses.A_NORMAL)
             self.window.addstr(1, status_offset + index + 3, "")
             status_offset += len(course[0])
         self.window.refresh()
-        curses.doupdate()
 
     def run(self) -> CourseSubMenu | Menu:
         self.window.scrollok(True)
@@ -561,7 +623,7 @@ class StatusBar(Menu):
 
     def focus(self) -> CourseSubMenu | Menu:
         while True:
-            cursor, left_offset = 3,3
+            cursor, left_offset = 3, 3
             self.window.clear()
             self.window.border()
             for index, course in enumerate(self.courses):
@@ -570,10 +632,9 @@ class StatusBar(Menu):
                     cursor = left_offset + index
                 msg = "%d.%s" % (index, course[0])
                 self.window.addstr(1, left_offset + index, msg + " " * 2, mode)
-                left_offset += len(course[0]) + 2 
+                left_offset += len(course[0]) + 2
             self.window.refresh()
             self.window.move(1, cursor)
-
             key = self.window.getch()
             if key in [curses.KEY_ENTER, ord("\n")]:
                 submenu = self.update_callback(
@@ -582,31 +643,59 @@ class StatusBar(Menu):
                 self.prev_win = submenu
                 submenu.display()
                 return submenu
+            elif key == curses.KEY_RIGHT or key == ord("j"):
+                self.navigate(1)
+            elif key == curses.KEY_LEFT or key == ord("k"):
+                self.navigate(-1)
             elif key == ord("\t"):
                 break
             elif key == curses.KEY_BACKSPACE:
                 self.change_win_callback(False, self, self.prev_win)
-            elif key == curses.KEY_LEFT or key == ord("k"):
-                self.navigate(-1)
-            elif key == curses.KEY_RIGHT or key == ord("j"):
-                self.navigate(1)
+            elif key == ord(":"):
+                self.gutter_mode()
         self.window.refresh()
+
+    def eval_command(cmd): 
+        cmds = {
+            "help" 
+        }
+        if cmd in cmds.keys(): 
+            cmds[cmd]()
+            return True 
+        return False
+
+    def gutter_mode(self): 
+        buffer = ""
+        self.window.clear() 
+        while True:
+            self.window.addstr(1, 1, buffer)
+            self.window.refresh() 
+            key = self.window.getch()
+            if chr(key).isalpha():
+                buffer += chr(key)
+            elif key == ord("\n"):
+                if self.eval_command(buffer):
+                    break
+            elif key == curses.KEY_BACKSPACE:
+                # TODO: check if this can be more  efficient 
+                Logger.info("oeirjgoeirj")
+                buffer = "hi"
+            else: 
+                Logger.info(key)
+                Logger.info(curses.keyname(key))
+
+class Gutter:
+    def __init__(self, stdscreen):
+        self.window = stdscreen.subwin()
 
 
 class Convas(object):
-    """Class to store parent window"""
-
     def __init__(self, stdscreen):
         self.url = "https://canvas.umd.umich.edu/api/v1/courses"
         self.screen = stdscreen
         self.course_info = loads(open("data.json").read())
-        self.course_names: list[str] = get_current_course_names(self.course_info)
-        self.course_name_id_map: dict[str, str] = get_current_course_name_id_map(
-            self.course_info
-        )
-        self.course_ids: list[str] = get_current_course_id(self.course_info)
-        self.course_id: int | None = None
-        self.course_menu = None
+        self.course_names: List[str] = get_current_course_names(self.course_info)
+        self.course_ids: List[str] = get_current_course_id(self.course_info)
         self.height, self.width = stdscreen.getmaxyx()
         self.status_bar: StatusBar = None
         # TODO:
@@ -636,19 +725,8 @@ class Convas(object):
             lambda course_id: CourseSubMenu(
                 main_window,
                 course_id,
-                lambda win: self.switch_win_callback(True, self, win),
-            ),
-            self.switch_win_callback,
-        )
-        self.status_bar.__init__(
-            self.course_names,
-            self.height,
-            self.width,
-            self.course_ids,
-            lambda course_id: CourseSubMenu(
-                main_window,
-                course_id,
                 lambda win: self.switch_win_callback(True, self.status_bar, win),
+                self.status_bar.gutter_mode() 
             ),
             self.switch_win_callback,
         )
