@@ -561,21 +561,18 @@ class StatusBar(Menu):
 
     def focus(self) -> CourseSubMenu | Menu:
         while True:
-            status_offset = 1
+            cursor, left_offset = 3,3
             self.window.clear()
             self.window.border()
             for index, course in enumerate(self.courses):
-                status_offset += 2
-                if index == self.position:
-                    mode = curses.A_REVERSE
-                else:
-                    mode = curses.A_NORMAL
+                mode = curses.A_REVERSE if index == self.position else curses.A_NORMAL
+                if self.position == index:
+                    cursor = left_offset + index
                 msg = "%d.%s" % (index, course[0])
-                self.window.addstr(1, status_offset + index, msg, mode)
-                self.window.addstr(1, status_offset + index + 3, "")
-                status_offset += len(course[0])
+                self.window.addstr(1, left_offset + index, msg + " " * 2, mode)
+                left_offset += len(course[0]) + 2 
             self.window.refresh()
-            curses.doupdate()
+            self.window.move(1, cursor)
 
             key = self.window.getch()
             if key in [curses.KEY_ENTER, ord("\n")]:
