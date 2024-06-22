@@ -8,7 +8,7 @@ import time
 from collections import namedtuple
 from curses import panel, wrapper
 from json import loads
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple, Union
 
 from config import Config
 from convas_requests import (
@@ -528,7 +528,8 @@ class StatusBar(Menu):
         self.update_callback = update_callback
         self.change_win_callback = change_win_callback
         self.keybinds = []
-        self.cmds = {"help": lambda: display_binds((curses.A_BOLD, curses.A_NORMAL))}
+        self.cmds = {"help": lambda: display_binds((curses.A_BOLD, curses.A_NORMAL)), 
+                     "quit": lambda: None }
 
         set_keybind_help([("j", "next"), ("k", "prev")])
 
@@ -597,6 +598,16 @@ class StatusBar(Menu):
         return False
 
     def gutter_mode(self):
+        input = TextInput(self.window, lambda cmd: self.eval_command(self.cmds, cmd))
+        success = input.run()
+        if success:
+            self.display()
+
+class TextInput():
+    def __init__(self, window: Any, eval_cmd: Callable[str, bool]): 
+        self.window = window
+        self.validate = eval_cmd
+    def run(self):
         buffer = ""
         cursor = 1
         self.window.clear()
@@ -609,36 +620,28 @@ class StatusBar(Menu):
             if chr(key).isalpha():
                 buffer = buffer[:cursor] + chr(key )+ buffer[cursor:]
                 cursor += 1
-
-            elif key == ord("\n"):
-                if self.eval_command(self.cmds, buffer):
-                    self.display()
-                    break
-
-            elif key == 1: # C-a 
-                cursor = 1 
-
-            elif key == 5: # C-e 
-                cursor = len(buffer) + 1  # includes border 
-
-            elif key == 11: # C-k 
-                buffer = buffer[:cursor-1]
-                self.window.clear()
-                self.window.border()
-
-            elif key == 2: # C-b 
-                cursor = max(1, cursor -1 )
-
-            elif key == 6: # C-f 
-                cursor = min(cursor+1, len(buffer) + 1)
-
             elif (
                 key == curses.KEY_BACKSPACE or key == 127
-            ):  # TOOD: 127 is backspace on linux , check if this is true for everything
+            ):  
                 buffer = buffer[:-1]
                 cursor = max(1, cursor - 1)
                 self.window.clear()
                 self.window.border()
+            elif key == 2: # C-b 
+                cursor = max(1, cursor -1 )
+            elif key == 6: # C-f 
+                cursor = min(cursor+1, len(buffer) + 1)
+            elif key == 1: # C-a 
+                cursor = 1 
+            elif key == 5: # C-e 
+                cursor = len(buffer) + 1  # includes border 
+            elif key == 11: # C-k 
+                buffer = buffer[:cursor-1]
+                self.window.clear()
+                self.window.border()
+            elif key == ord("\n"):
+                if self.validate(buffer):
+                    return buffer
 
 class Convas(object):
     def __init__(self, stdscreen):
