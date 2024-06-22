@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+# TODO: add keybinds for all wins
 import curses
 import json
 import os
@@ -42,66 +43,17 @@ with open("data.json") as file:
 
 class Menu(object):
     def __init__(self, items, stdscreen):
-        """
-        items: [str, function on click]
-        stdscreen: the screen instance
-        """
         self.window = stdscreen.subwin(0, 0)
-        self.window.keypad(1)
         self.position = 0
-        self.items = items
-        self.items.append(("exit", "exit"))
 
     def navigate(self, n):
-        self.position += n
-        if self.position < 0:
-            self.position = 0
-        elif self.position >= len(self.items):
-            self.position = len(self.items) - 1
+        raise NotImplementedError
 
     def display(self):
-        self.window.clear()
-        curses.doupdate()
-        for index, item in enumerate(self.items):
-            msg = "%d. %s" % (index, item[0])
-            self.window.addstr(1 + index, 1, msg, curses.A_NORMAL)
-        self.window.refresh()
-        curses.doupdate()
+        raise NotImplementedError
 
     def run(self):
-        self.window.clear()
-        while True:
-            self.window.refresh()
-            curses.doupdate()
-            for index, item in enumerate(self.items):
-                if index == self.position:
-                    mode = curses.A_REVERSE
-                else:
-                    mode = curses.A_NORMAL
-                msg = "%d. %s" % (index, item[0])
-                self.window.addstr(1 + index, 1, msg, mode)
-            key = self.window.getch()
-            if key in [curses.KEY_ENTER, ord("\n")]:
-                if self.position == len(self.items) - 1:
-                    break
-                else:
-                    self.items[self.position][1]()
-            elif key == curses.KEY_UP or key == ord("k"):
-                self.navigate(-1)
-            elif key == curses.KEY_DOWN or key == ord("j"):
-                self.navigate(1)
-        curses.doupdate()
-        for index, item in enumerate(self.items):
-            if index == self.position:
-                mode = curses.A_REVERSE
-            else:
-                mode = curses.A_NORMAL
-
-            msg = "%d. %s" % (index, item[0])
-            self.window.addstr(1 + index, 1, msg, mode)
-        self.window.refresh()
-        curses.doupdate()
-
+        raise NotImplementedError
 
 class CourseSubMenu(Menu):
     def __init__(
@@ -156,13 +108,6 @@ class CourseSubMenu(Menu):
             )
             for assignment in self.assignments
         }
-        self.assignment_descriptions = {
-            assignment["name"]: [
-                assignment["description"],
-                assignment["points_possible"],
-            ]
-            for assignment in self.assignments
-        }
         self.switch_to_statusbar_callback = switch_to_statusbar_callback
 
         super().__init__(
@@ -210,7 +155,7 @@ class CourseSubMenu(Menu):
             left_side_str = [assignment["name"] for assignment in self.assignments]
 
         elif entry == "home":
-            # TODO
+            # TODO:
             # { "braille_up", {
             # 	" ", "⢀", "⢠", "⢰", "⢸",
             # 	"⡀", "⣀", "⣠", "⣰", "⣸",
@@ -308,8 +253,6 @@ class CourseSubMenu(Menu):
                     item,
                 )
         self.main_window.refresh()
-        self.main_window.border()
-        curses.doupdate()
 
     def toggle_side_main_win(self):
         if self.win_index == 2:
@@ -329,7 +272,6 @@ class CourseSubMenu(Menu):
         pass
 
     def run_main_win(self):
-
         def main_win_loop(
             left_side_str: List[str],
             bindings: List[Tuple[int, Callable[None, Any]]],
@@ -524,9 +466,8 @@ class CourseSubMenu(Menu):
                 msg = "%s" % (item)
                 self.side_window.addstr(1 + index, 1, msg, mode)
             self.side_window.move(self.position + 1, 1)
-            self.side_window.refresh()
             self.side_window.border()
-            curses.doupdate()
+            self.side_window.refresh()
 
             key = self.side_window.getch()
             if key == curses.KEY_UP or key == ord("k"):
@@ -561,23 +502,6 @@ class CourseSubMenu(Menu):
     #         container.addstr(i + 1, 1, line)  # Add content to the container
     #     return container
 
-    def display_assignment_info(self, assignment_id: int) -> int:
-        assignment_name = self.assignment_id_map[assignment_id]
-        assignment_description = self.assignment_descriptions
-        created_at, due_at = self.assignment_dates[assignment_name]
-
-        self.window.clear()
-        self.window.refresh()
-
-        for index, entry in enumerate(self.tabs):
-            self.side_window.addstr(
-                int(index) + 1, 2, entry, curses.A_BOLD | curses.color_pair(1)
-            )
-
-        Logger.info(assignment_description)
-        Logger.info(self.assignments)
-
-
 class StatusBar(Menu):
     def __init__(
         self,
@@ -594,7 +518,11 @@ class StatusBar(Menu):
         self.position = 0
         self.course_ids = course_ids
         self.courses = [
-            (course[: course.find("(")], course) if (course.find("(") != -1) else course # )) 
+            (
+                (course[: course.find("(")], course)
+                if (course.find("(") != -1)
+                else course
+            )  # ))
             for course in courses
         ]
         self.update_callback = update_callback
@@ -611,7 +539,7 @@ class StatusBar(Menu):
         elif self.position >= len(self.courses):
             self.position = len(self.courses) - 1
 
-    def display(self):
+    def display(self) -> None:
         self.window.clear()
         self.window.border()
         status_offset = 1
@@ -662,7 +590,7 @@ class StatusBar(Menu):
         self.window.refresh()
 
     @staticmethod
-    def eval_command(cmds, cmd):
+    def eval_command(cmds: Dict[str, Callable[None, None]], cmd: str) -> bool:
         if cmd in cmds.keys():
             cmds[cmd]()
             return True
@@ -680,6 +608,7 @@ class StatusBar(Menu):
                 buffer += chr(key)
             elif key == ord("\n"):
                 if self.eval_command(self.cmds, buffer):
+                    self.display()
                     break
             elif (
                 key == curses.KEY_BACKSPACE or key == 127
@@ -727,7 +656,7 @@ class Convas(object):
             win.run()
 
     @staticmethod
-    def show_panel(apanel): 
+    def show_panel(apanel) -> None:
         apanel.top()
         panel.update_panels()
         curses.doupdate()
@@ -738,13 +667,13 @@ class Convas(object):
     def display_binds(self, opts: Tuple[Any, Any] = (curses.A_NORMAL, curses.A_NORMAL)):
         """Display keybinds"""
         self.keybind_win.clear()
-        rows = 1 + 2 # 2 for borders 
+        rows = 1 + 2  # 2 for borders
         self.keybind_win.addstr(1, 1, "Keybinds")
         for index, keybind in enumerate(self.keybinds):
-            self.keybind_win.addstr(index + 2 , 2, keybind[0], opts[0])
+            self.keybind_win.addstr(index + 2, 2, keybind[0], opts[0])
             self.keybind_win.addstr(index + 2, len(keybind[0]) + 4, keybind[1], opts[1])
-            rows += 1 
-        self.keybind_win.resize( rows, self.height -3)
+            rows += 1
+        self.keybind_win.resize(rows, self.height - 3)
         self.keybind_win.border()
         self.show_panel(self.keybind_panel)
 

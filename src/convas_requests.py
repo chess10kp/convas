@@ -1,18 +1,17 @@
-
 #!/usr/bin/env python3
 
-import curses
 import json
 import os
-import re
 import subprocess
 import time
 from collections import namedtuple
 from curses import panel, wrapper
-from json import loads
-from typing import Dict, Generator, Tuple
 from enum import Enum
+from json import loads
+from typing import Dict, Generator, List, Tuple
 from urllib import error, request
+
+from helper import Logger
 
 HOME = os.path.expanduser("~")
 CONFIG_FILE = "%s/.config/convas/config" % HOME
@@ -45,6 +44,15 @@ def get_current_courses(json_obj) -> list[Dict[str, str]]:
         course
         for course in json_obj
         if course["created_at"][:10] == json_obj[-1]["created_at"][:10]
+    ]
+
+
+def get_discussions(assignments: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    return [
+        discussion
+        for discussion in assignments
+        if "submission_type" in discussion.keys() and 
+        "discussion_topic" in discussion["submission_type"]
     ]
 
 
@@ -90,16 +98,15 @@ def get_files(url: str, headers, course_id: int):
     return files
 
 
-def get_file_names(file_obj) -> list[str]:
-    return [file["display_name"] for file in file_obj]
-
-
-def get_file_download(file_obj) -> list[str]:
-    return [file["url"] for file in file_obj]
-
-
-def get_file_names_download(file_obj):
-    return {file["display_name"]: file["url"] for file in file_obj}
+def download_file(id: int, course_id: int, outfile: str, headers) -> bool:
+    try:
+        with request.urlopen(url) as response:
+            with open(outfile, "wb") as out_file:
+                out_file.write(response.read())
+                return True
+    except error.URLError as err:
+        Logger.info(f"Failed to download file. Exception {err}")
+        return False
 
 
 def get_assignments_request(url, headers, course_id: int):
