@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-# TODO: add keybinds for all wins
 import curses
 import json
 import os
@@ -55,6 +54,7 @@ class Menu(object):
     def run(self):
         raise NotImplementedError
 
+
 class CourseSubMenu(Menu):
     def __init__(
         self,
@@ -62,12 +62,14 @@ class CourseSubMenu(Menu):
         course_id: int,
         switch_to_statusbar_callback: Callable[Any, None],
         gutter_callback: Callable[None, None],
+        keybind_help: Callable[List[Tuple[str,str]], None]
     ):
         self.window = window
         self.window.keypad(1)
         self.win_index = 2  # 2 = side_window, 3 = main_window
         self.tab_index = 0
         self.gutter_mode = gutter_callback
+        self.set_keybind_help = keybind_help
 
         self.tabs = [
             "Home",
@@ -274,12 +276,14 @@ class CourseSubMenu(Menu):
     def run_main_win(self):
         def main_win_loop(
             left_side_str: List[str],
-            bindings: List[Tuple[int, Callable[None, Any]]],
+            bindings: List[Tuple[int, Callable[None, Any], str]],
             right_side_str: List[str] | None = None,
             right_offset: int | None = None,
         ):
+            self.set_keybind_help([("j", "next"), ("k", "prev"), (":", "cmd mode"),("h", "switch to side panel") ])
             self.main_window.clear()
             self.main_window.border()
+            
             while True:
                 for index, item in enumerate(left_side_str):
                     mode = (
@@ -345,14 +349,19 @@ class CourseSubMenu(Menu):
             main_win_loop(
                 assignments,
                 [
-                    (ord("k"), lambda: self.set_position(max(0, self.position - 1))),
+                    (
+                        ord("k"),
+                        lambda: self.set_position(max(0, self.position - 1)),
+                        "up",
+                    ),
                     (
                         ord("j"),
                         lambda: self.set_position(
                             min(self.position + 1, len(self.assignments) - 1)
                         ),
+                        "down",
                     ),
-                    (ord("o"), lambda: self.open_url()),
+                    (ord("o"), lambda: self.open_url(), "open in browser"),
                 ],
             )
             # TODO: Add "o" to open in browser
@@ -453,6 +462,7 @@ class CourseSubMenu(Menu):
 
     def run(self):
         """Loop for selecting tab"""
+        self.set_keybind_help([("j", "next"), ("k", "prev"), (":", "cmd mode"),("l", "switch to main pane") ])
         for index, item in enumerate(self.tabs):
             if index == self.position:
                 mode = curses.A_REVERSE
@@ -502,6 +512,7 @@ class CourseSubMenu(Menu):
     #         container.addstr(i + 1, 1, line)  # Add content to the container
     #     return container
 
+
 class StatusBar(Menu):
     def __init__(
         self,
@@ -528,10 +539,11 @@ class StatusBar(Menu):
         self.update_callback = update_callback
         self.change_win_callback = change_win_callback
         self.keybinds = []
-        self.cmds = {"help": lambda: display_binds((curses.A_BOLD, curses.A_NORMAL)), 
-                     "quit": lambda: None }
-
-        set_keybind_help([("j", "next"), ("k", "prev")])
+        self.cmds = {
+            "help": lambda: display_binds((curses.A_BOLD, curses.A_NORMAL)),
+            "quit": lambda: None,
+        }
+        self.set_keybind_help = set_keybind_help
 
     def navigate(self, n: int) -> None:
         self.position += n
@@ -557,6 +569,7 @@ class StatusBar(Menu):
         return self.focus()
 
     def focus(self) -> CourseSubMenu | Menu:
+        self.set_keybind_help([("j", "next"), ("k", "prev"), (":", "cmd mode") ])
         while True:
             cursor, left_offset = 3, 3
             self.window.clear()
@@ -597,17 +610,17 @@ class StatusBar(Menu):
             return True
         return False
 
-    def gutter_mode(self):
+    def gutter_mode(self) -> None:
         input = TextInput(self.window, lambda cmd: self.eval_command(self.cmds, cmd))
-        success = input.run()
-        if success:
-            self.display()
+        input.run()
+        self.display()
 
-class TextInput():
-    def __init__(self, window: Any, eval_cmd: Callable[str, bool]): 
+class TextInput:
+    def __init__(self, window: Any, eval_cmd: Callable[str, bool]):
         self.window = window
         self.validate = eval_cmd
-    def run(self):
+
+    def run(self) -> None:
         buffer = ""
         cursor = 1
         self.window.clear()
@@ -618,30 +631,33 @@ class TextInput():
             self.window.refresh()
             key = self.window.getch()
             if chr(key).isalpha():
-                buffer = buffer[:cursor] + chr(key )+ buffer[cursor:]
+                buffer = buffer[:cursor] + chr(key) + buffer[cursor:]
                 cursor += 1
-            elif (
-                key == curses.KEY_BACKSPACE or key == 127
-            ):  
+            elif key == curses.KEY_BACKSPACE or key == 127:
                 buffer = buffer[:-1]
                 cursor = max(1, cursor - 1)
                 self.window.clear()
                 self.window.border()
-            elif key == 2: # C-b 
-                cursor = max(1, cursor -1 )
-            elif key == 6: # C-f 
-                cursor = min(cursor+1, len(buffer) + 1)
-            elif key == 1: # C-a 
-                cursor = 1 
-            elif key == 5: # C-e 
-                cursor = len(buffer) + 1  # includes border 
-            elif key == 11: # C-k 
-                buffer = buffer[:cursor-1]
+            elif key == 2:  # C-b
+                cursor = max(1, cursor - 1)
+            elif key == 6:  # C-f
+                cursor = min(cursor + 1, len(buffer) + 1)
+            elif key == 1:  # C-a
+                cursor = 1
+            elif key == 5:  # C-e
+                cursor = len(buffer) + 1  # includes border
+            elif key == 11:  # C-k
+                buffer = buffer[: cursor - 1]
                 self.window.clear()
                 self.window.border()
+            elif key == 27: # Esc
+                return ""  
             elif key == ord("\n"):
                 if self.validate(buffer):
                     return buffer
+            else:
+                self.window.addstr(str(key))
+
 
 class Convas(object):
     def __init__(self, stdscreen):
@@ -653,7 +669,7 @@ class Convas(object):
         self.height, self.width = stdscreen.getmaxyx()
         self.status_bar: StatusBar = None
 
-        self.keybind_win = curses.newwin(self.height - 3, int(self.width * 0.2), 0, 0)
+        self.keybind_win = curses.newwin(self.height - 3, int(self.width * 0.3), 0, 0)
         self.keybind_panel = panel.new_panel(self.keybind_win)
 
         self.main_window = curses.newwin(self.height - 3, self.width, 0, 0)
@@ -693,14 +709,16 @@ class Convas(object):
         rows = 1 + 2  # 2 for borders
         self.keybind_win.addstr(1, 1, "Keybinds")
         for index, keybind in enumerate(self.keybinds):
-            self.keybind_win.addstr(index + 2, 2, keybind[0], opts[0])
-            self.keybind_win.addstr(index + 2, len(keybind[0]) + 4, keybind[1], opts[1])
+            self.keybind_win.addstr(index + 2, 2, keybind[0][:int(self.width*0.3)], opts[0])
+            self.keybind_win.addstr(index + 2, len(keybind[0]) + 4, keybind[1][:int(self.width*0.3)-len(keybind[0])], opts[1])
             rows += 1
         self.keybind_win.resize(rows, self.height - 3)
+        curses.curs_set(0)
         self.keybind_win.border()
         self.show_panel(self.keybind_panel)
 
         if self.screen.getch():
+            curses.curs_set(1)
             self.keybind_panel.bottom()
             panel.update_panels()
             curses.doupdate()
@@ -716,6 +734,7 @@ class Convas(object):
                 course_id,
                 lambda win: self.switch_win_callback(True, self.status_bar, win),
                 self.status_bar.gutter_mode,
+                self.set_keybind_help
             ),
             self.switch_win_callback,
             self.set_keybind_help,
