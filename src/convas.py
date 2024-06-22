@@ -109,7 +109,7 @@ class CourseSubMenu(Menu):
         window: Any,
         course_id: int,
         switch_to_statusbar_callback: Callable[Any, None],
-        gutter_callback: Callable[None, None]
+        gutter_callback: Callable[None, None],
     ):
         self.window = window
         self.window.keypad(1)
@@ -587,18 +587,24 @@ class StatusBar(Menu):
         course_ids: List[int],
         update_callback: Callable[int, None],
         change_win_callback: Callable[Any, None],
+        set_keybind_help: Callable[List[Tuple[str, str]], None],
+        display_binds: Callable[Tuple[Any, Any], None],
     ):
         self.window = curses.newwin(3, width, height - 3, 0)
         self.position = 0
         self.course_ids = course_ids
         self.courses = [
-            (course[: course.find("(")], course) if (course.find("(") != -1) else course
+            (course[: course.find("(")], course) if (course.find("(") != -1) else course # )) 
             for course in courses
         ]
         self.update_callback = update_callback
         self.change_win_callback = change_win_callback
+        self.keybinds = []
+        self.cmds = {"help": lambda: display_binds((curses.A_BOLD, curses.A_NORMAL))}
 
-    def navigate(self, n):
+        set_keybind_help([("j", "next"), ("k", "prev")])
+
+    def navigate(self, n: int) -> None:
         self.position += n
         if self.position < 0:
             self.position = 0
@@ -650,43 +656,39 @@ class StatusBar(Menu):
             elif key == ord("\t"):
                 break
             elif key == curses.KEY_BACKSPACE:
-                self.change_win_callback(False, self, self.prev_win)
+                break
             elif key == ord(":"):
                 self.gutter_mode()
         self.window.refresh()
 
-    def eval_command(cmd): 
-        cmds = {
-            "help" 
-        }
-        if cmd in cmds.keys(): 
+    @staticmethod
+    def eval_command(cmds, cmd):
+        if cmd in cmds.keys():
             cmds[cmd]()
-            return True 
+            return True
         return False
 
-    def gutter_mode(self): 
+    def gutter_mode(self):
         buffer = ""
-        self.window.clear() 
+        self.window.clear()
+        self.window.border()
         while True:
-            self.window.addstr(1, 1, buffer)
-            self.window.refresh() 
+            self.window.addstr(1, 2, buffer)
+            self.window.refresh()
             key = self.window.getch()
             if chr(key).isalpha():
                 buffer += chr(key)
             elif key == ord("\n"):
-                if self.eval_command(buffer):
+                if self.eval_command(self.cmds, buffer):
                     break
-            elif key == curses.KEY_BACKSPACE:
-                # TODO: check if this can be more  efficient 
-                Logger.info("oeirjgoeirj")
-                buffer = "hi"
-            else: 
-                Logger.info(key)
-                Logger.info(curses.keyname(key))
-
-class Gutter:
-    def __init__(self, stdscreen):
-        self.window = stdscreen.subwin()
+            elif (
+                key == curses.KEY_BACKSPACE or key == 127
+            ):  # TOOD: 127 is backspace on linux , check if this is true for everything
+                # TODO: check if this can be more  efficient
+                buffer = buffer[:-1]
+                self.window.clear()
+                self.window.border()
+            # TODO: add emacs style bindings
 
 
 class Convas(object):
@@ -698,8 +700,19 @@ class Convas(object):
         self.course_ids: List[str] = get_current_course_id(self.course_info)
         self.height, self.width = stdscreen.getmaxyx()
         self.status_bar: StatusBar = None
-        # TODO:
-        self.command_panel = panel.new_panel(stdscreen)
+
+        self.keybind_win = curses.newwin(self.height - 3, int(self.width * 0.2), 0, 0)
+        self.keybind_panel = panel.new_panel(self.keybind_win)
+
+        self.main_window = curses.newwin(self.height - 3, self.width, 0, 0)
+        self.main_window_panel = panel.new_panel(self.main_window)
+        self.main_window_panel.top()
+
+        self.current_win_keybinds = []
+        self.keybind_win.border()
+
+        panel.update_panels()
+        curses.doupdate()
 
     @staticmethod
     def switch_win_callback(switch_to_statusbar, statusbar, win):
@@ -713,22 +726,48 @@ class Convas(object):
             statusbar.display()
             win.run()
 
+    @staticmethod
+    def show_panel(apanel): 
+        apanel.top()
+        panel.update_panels()
+        curses.doupdate()
+
+    def set_keybind_help(self, binds: List[Tuple[str, str]]) -> None:
+        self.keybinds = binds
+
+    def display_binds(self, opts: Tuple[Any, Any] = (curses.A_NORMAL, curses.A_NORMAL)):
+        """Display keybinds"""
+        self.keybind_win.clear()
+        rows = 1 + 2 # 2 for borders 
+        self.keybind_win.addstr(1, 1, "Keybinds")
+        for index, keybind in enumerate(self.keybinds):
+            self.keybind_win.addstr(index + 2 , 2, keybind[0], opts[0])
+            self.keybind_win.addstr(index + 2, len(keybind[0]) + 4, keybind[1], opts[1])
+            rows += 1 
+        self.keybind_win.resize( rows, self.height -3)
+        self.keybind_win.border()
+        self.show_panel(self.keybind_panel)
+
+        if self.screen.getch():
+            self.keybind_panel.bottom()
+            panel.update_panels()
+            curses.doupdate()
+
     def run(self) -> None:
-        """Main loop"""
-        main_window = curses.newwin(self.height - 3, self.width, 0, 0)
-        main_window.border()
         self.status_bar = StatusBar(
             self.course_names,
             self.height,
             self.width,
             self.course_ids,
             lambda course_id: CourseSubMenu(
-                main_window,
+                self.main_window,
                 course_id,
                 lambda win: self.switch_win_callback(True, self.status_bar, win),
-                self.status_bar.gutter_mode() 
+                self.status_bar.gutter_mode,
             ),
             self.switch_win_callback,
+            self.set_keybind_help,
+            self.display_binds,
         )
 
         splash = r"""
