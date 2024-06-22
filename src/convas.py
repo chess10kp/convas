@@ -598,27 +598,47 @@ class StatusBar(Menu):
 
     def gutter_mode(self):
         buffer = ""
+        cursor = 1
         self.window.clear()
         self.window.border()
         while True:
-            self.window.addstr(1, 2, buffer)
+            self.window.addstr(1, 1, buffer)
+            self.window.move(1, cursor)
             self.window.refresh()
             key = self.window.getch()
             if chr(key).isalpha():
-                buffer += chr(key)
+                buffer = buffer[:cursor] + chr(key )+ buffer[cursor:]
+                cursor += 1
+
             elif key == ord("\n"):
                 if self.eval_command(self.cmds, buffer):
                     self.display()
                     break
+
+            elif key == 1: # C-a 
+                cursor = 1 
+
+            elif key == 5: # C-e 
+                cursor = len(buffer) + 1  # includes border 
+
+            elif key == 11: # C-k 
+                buffer = buffer[:cursor-1]
+                self.window.clear()
+                self.window.border()
+
+            elif key == 2: # C-b 
+                cursor = max(1, cursor -1 )
+
+            elif key == 6: # C-f 
+                cursor = min(cursor+1, len(buffer) + 1)
+
             elif (
                 key == curses.KEY_BACKSPACE or key == 127
             ):  # TOOD: 127 is backspace on linux , check if this is true for everything
-                # TODO: check if this can be more  efficient
                 buffer = buffer[:-1]
+                cursor = max(1, cursor - 1)
                 self.window.clear()
                 self.window.border()
-            # TODO: add emacs style bindings
-
 
 class Convas(object):
     def __init__(self, stdscreen):
@@ -644,7 +664,7 @@ class Convas(object):
         curses.doupdate()
 
     @staticmethod
-    def switch_win_callback(switch_to_statusbar, statusbar, win):
+    def switch_win_callback(switch_to_statusbar: bool, statusbar: Any, win: Any):
         if switch_to_statusbar:
             win.display()
             selected = statusbar.focus()
@@ -700,7 +720,7 @@ class Convas(object):
         )
 
         splash = r"""
- ________  ________  ________   ___      ___ ________  ________ 
+ ________  ________  ________   ___      ___ ________  ________
 |\   ____\|\   __  \|\   ___  \|\  \    /  /|\   __  \|\   ____\
 \ \  \___|\ \  \|\  \ \  \\ \  \ \  \  /  / | \  \|\  \ \  \___|_
  \ \  \    \ \  \\\  \ \  \\ \  \ \  \/  / / \ \   __  \ \_____  \
