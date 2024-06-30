@@ -3,9 +3,9 @@
 import curses
 import json
 import os
-import time
+import subprocess
 from collections import namedtuple
-from curses import panel, wrapper
+from curses import panel
 from json import loads
 from typing import Any, Callable, Dict, List, Tuple, Union
 
@@ -13,7 +13,6 @@ from config import Config
 from convas_requests import (
     download_file,
     get_current_course_id,
-    get_current_course_name_id_map,
     get_current_course_names,
     get_discussions,
 )
@@ -62,7 +61,7 @@ class CourseSubMenu(Menu):
         course_id: int,
         switch_to_statusbar_callback: Callable[Any, None],
         gutter_callback: Callable[None, None],
-        keybind_help: Callable[List[Tuple[str,str]], None]
+        keybind_help: Callable[List[Tuple[str, str]], None],
     ):
         self.window = window
         self.window.keypad(1)
@@ -82,17 +81,30 @@ class CourseSubMenu(Menu):
             "Syllabus",
         ]
 
-        self.files: list[dict[str, str]] = loads(
-            open(f"./files{course_id}.json").read()
-        )
-        self.quizzes: list[dict[str, str]] = loads(
-            open(f"./quizzes{course_id}.json").read()
-        )
+        self.announcements = None
+        self.quizzes = None
+        self.files = None
+
+        def file_exists(filename: str) -> bool:
+            return subprocess.run(["ls", filename]).returncode == 0
+
+        if file_exists(f"./files{course_id}.json"):
+            self.files: list[dict[str, str]] = loads(
+                open(f"./files{course_id}.json").read()
+            )
+        if file_exists(f"./quizzes{course_id}.json"):
+            self.quizzes: list[dict[str, str]] = loads(
+                open(f"./quizzes{course_id}.json").read()
+            )
+        if file_exists(f"./announcements{course_id}.json"):
+            self.announcements = loads(open(f"./announcements{course_id}.json").read())
 
         if not isinstance(self.files, List):
             self.tabs.remove("Files")
         if not isinstance(self.quizzes, List):
             self.tabs.remove("Quizzes")
+        if not isinstance(self.announcements, List):
+            self.tabs.remove("Announcements")
 
         course_assignment_dates = namedtuple(
             "course_assignment_dates", ["created_at", "due_at"]
@@ -101,6 +113,7 @@ class CourseSubMenu(Menu):
         self.assignments: list[dict[str, str]] = loads(
             (open(f"./assignments{course_id}.json").read())
         )
+
         self.assignment_id_map: dict[str, str] = {
             assignment["id"]: assignment["name"] for assignment in self.assignments
         }
@@ -151,12 +164,27 @@ class CourseSubMenu(Menu):
 
     def display_main_win(self, heading: int):
         entry = self.tabs[heading].lower()
+        rows_per_item = 1
         right_side_str, left_side_str, right_offset = None, None, None
         _, cols = self.main_window.getmaxyx()
         if entry == "assignments":
             left_side_str = [assignment["name"] for assignment in self.assignments]
 
         elif entry == "home":
+            graded_assignments = [
+                assignment
+                for assignment in self.assignments
+                if ("submission" in assignment.keys())
+                and assignment["submission"]["submitted_at"] != 0
+            ]
+            right_side_str = [
+                f"{assignment['points_possible']}/ {assignment['submission']['score']}"
+                for assignment in self.assignments
+                if ("submission" in assignment.keys())
+                and assignment["submission"]["submitted_at"] != 0
+            ]
+            current_grade = []
+
             # TODO:
             # { "braille_up", {
             # 	" ", "⢀", "⢠", "⢰", "⢸",
@@ -203,10 +231,20 @@ class CourseSubMenu(Menu):
 
             left_side_str = [assignment["name"] for assignment in self.assignments]
 
+        elif entry == "announcements":
+            left_side_str = [
+                announcement["title"] for announcement in self.announcements
+            ]
+            right_side_str = [
+                announcement["created_at"][:10] for announcement in self.announcements
+            ]
+            right_offset = [
+                (cols - len(str(right_str)) - 3) for right_str in right_side_str
+            ]
+            rows_per_item  = 2 
         elif entry == "discussions":
             discussions = get_discussions(self.assignments)
             left_side_str = [assignment["name"] for assignment in discussions]
-
         elif entry == "grades":
             left_side_str = [
                 assignment["name"]
@@ -214,7 +252,6 @@ class CourseSubMenu(Menu):
                 if ("submission" in assignment.keys())
                 and assignment["submission"]["submitted_at"] != 0
             ]
-
             right_side_str = [
                 f"{assignment['points_possible']}/ {assignment['submission']['score']}"
                 for assignment in self.assignments
@@ -242,18 +279,21 @@ class CourseSubMenu(Menu):
 
         if not left_side_str:
             return
+
         self.main_window.clear()
         self.main_window.border()
         for index, item in enumerate(left_side_str):
-            self.main_window.addstr(1 + index, 1, item)
+            for i in range(rows_per_item):
+                self.main_window.addstr(1 + index, 1, item[i])
+
         if right_side_str:
-            Logger.info(right_side_str)
             for index, item in enumerate(right_side_str):
-                self.main_window.addstr(
-                    1 + index,
-                    (right_offset[index] if right_offset is not None else 1),
-                    item,
-                )
+                for i in range(rows_per_item):
+                    self.main_window.addstr(
+                        1 + index,
+                        (right_offset[index] if right_offset is not None else 1),
+                        item[i],
+                    )
         self.main_window.refresh()
 
     def toggle_side_main_win(self):
@@ -280,10 +320,17 @@ class CourseSubMenu(Menu):
             right_side_str: List[str] | None = None,
             right_offset: int | None = None,
         ):
-            self.set_keybind_help([("j", "next"), ("k", "prev"), (":", "cmd mode"),("h", "switch to side panel") ])
+            self.set_keybind_help(
+                [
+                    ("j", "next"),
+                    ("k", "prev"),
+                    (":", "cmd mode"),
+                    ("h", "switch to side panel"),
+                ]
+            )
             self.main_window.clear()
             self.main_window.border()
-            
+
             while True:
                 for index, item in enumerate(left_side_str):
                     mode = (
@@ -462,7 +509,14 @@ class CourseSubMenu(Menu):
 
     def run(self):
         """Loop for selecting tab"""
-        self.set_keybind_help([("j", "next"), ("k", "prev"), (":", "cmd mode"),("l", "switch to main pane") ])
+        self.set_keybind_help(
+            [
+                ("j", "next"),
+                ("k", "prev"),
+                (":", "cmd mode"),
+                ("l", "switch to main pane"),
+            ]
+        )
         for index, item in enumerate(self.tabs):
             if index == self.position:
                 mode = curses.A_REVERSE
@@ -569,7 +623,7 @@ class StatusBar(Menu):
         return self.focus()
 
     def focus(self) -> CourseSubMenu | Menu:
-        self.set_keybind_help([("j", "next"), ("k", "prev"), (":", "cmd mode") ])
+        self.set_keybind_help([("j", "next"), ("k", "prev"), (":", "cmd mode")])
         while True:
             cursor, left_offset = 3, 3
             self.window.clear()
@@ -615,6 +669,7 @@ class StatusBar(Menu):
         input.run()
         self.display()
 
+
 class TextInput:
     def __init__(self, window: Any, eval_cmd: Callable[str, bool]):
         self.window = window
@@ -650,8 +705,8 @@ class TextInput:
                 buffer = buffer[: cursor - 1]
                 self.window.clear()
                 self.window.border()
-            elif key == 27: # Esc
-                return ""  
+            elif key == 27:  # Esc
+                return ""
             elif key == ord("\n"):
                 if self.validate(buffer):
                     return buffer
@@ -709,8 +764,15 @@ class Convas(object):
         rows = 1 + 2  # 2 for borders
         self.keybind_win.addstr(1, 1, "Keybinds")
         for index, keybind in enumerate(self.keybinds):
-            self.keybind_win.addstr(index + 2, 2, keybind[0][:int(self.width*0.3)], opts[0])
-            self.keybind_win.addstr(index + 2, len(keybind[0]) + 4, keybind[1][:int(self.width*0.3)-len(keybind[0])], opts[1])
+            self.keybind_win.addstr(
+                index + 2, 2, keybind[0][: int(self.width * 0.3)], opts[0]
+            )
+            self.keybind_win.addstr(
+                index + 2,
+                len(keybind[0]) + 4,
+                keybind[1][: int(self.width * 0.3) - len(keybind[0])],
+                opts[1],
+            )
             rows += 1
         self.keybind_win.resize(rows, self.height - 3)
         curses.curs_set(0)
@@ -734,7 +796,7 @@ class Convas(object):
                 course_id,
                 lambda win: self.switch_win_callback(True, self.status_bar, win),
                 self.status_bar.gutter_mode,
-                self.set_keybind_help
+                self.set_keybind_help,
             ),
             self.switch_win_callback,
             self.set_keybind_help,
