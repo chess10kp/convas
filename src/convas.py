@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 
+from re import sub
 import curses
-import json
 import os
+import platform
 import subprocess
-from collections import namedtuple
 from curses import panel
+from inspect import getfullargspec
 from json import loads
-from typing import Any, Callable, Dict, List, Tuple, Union
-
+from typing import Any, Callable, Dict, List, Optional, Tuple
+from html import unescape
 from config import Config
 from convas_requests import (
     download_file,
@@ -16,7 +17,7 @@ from convas_requests import (
     get_current_course_names,
     get_discussions,
 )
-from helper import Logger
+from helper import Logger, show_panel, show_panel_hide_on_keypress
 
 HOME = os.path.expanduser("~")
 CONFIG_FILE = "%s/.config/convas/config" % HOME
@@ -33,10 +34,6 @@ if "config" not in globals():
 url = "https://canvas.umd.umich.edu/api/v1/courses"
 
 headers = {"Authorization": f"Bearer {config.get_token()}"}
-
-with open("data.json") as file:
-    data = file.read()
-    all_courses = json.loads(data)
 
 
 class Menu(object):
@@ -70,7 +67,6 @@ class CourseSubMenu(Menu):
         self.tab_index = 0
         self.gutter_mode = gutter_callback
         self.set_keybind_help = keybind_help
-
         self.tabs = [
             "Home",
             "Announcements",
@@ -80,10 +76,26 @@ class CourseSubMenu(Menu):
             "Quizzes",
             "Files",
         ]
-
         self.announcements = None
         self.quizzes = None
         self.files = None
+        rows, cols = self.window.getmaxyx()
+        self.side_window = self.window.subwin(rows, int(cols * 0.2), 0, 0)
+        self.main_win = self.window.subwin(rows, int(cols * 0.8), 0, int(cols * 0.2))
+        self.main_win.scrollok(True)
+        self.main_win_panel = panel.new_panel(self.main_win)
+        self.main_win_panel.top()
+        self.main_win_popup = self.window.subwin(
+            int(rows * 0.8), int(cols * 0.6), 0, int(cols * 0.2)
+        )
+        self.main_win_popup_panel = panel.new_panel(self.main_win)
+        self.main_win_start = 0
+        self.main_win_end = 0
+        self.course_id = course_id
+        self.assignments: list[dict[str, str]] = loads(
+            (open(f"./assignments{course_id}.json").read())
+        )
+        self.switch_to_statusbar_callback = switch_to_statusbar_callback
 
         def file_exists(filename: str) -> bool:
             return subprocess.run(["ls", filename]).returncode == 0
@@ -106,25 +118,6 @@ class CourseSubMenu(Menu):
         if not isinstance(self.announcements, List):
             self.tabs.remove("Announcements")
 
-        course_assignment_dates = namedtuple(
-            "course_assignment_dates", ["created_at", "due_at"]
-        )
-        self.course_id = course_id
-        self.assignments: list[dict[str, str]] = loads(
-            (open(f"./assignments{course_id}.json").read())
-        )
-
-        self.assignment_id_map: dict[str, str] = {
-            assignment["id"]: assignment["name"] for assignment in self.assignments
-        }
-        self.assignment_dates = {
-            assignment["name"]: course_assignment_dates(
-                created_at=assignment["created_at"], due_at=assignment["due_at"]
-            )
-            for assignment in self.assignments
-        }
-        self.switch_to_statusbar_callback = switch_to_statusbar_callback
-
         super().__init__(
             [
                 [
@@ -137,12 +130,6 @@ class CourseSubMenu(Menu):
         )
         self.window.clear()
         self.window.refresh()
-        rows, cols = self.window.getmaxyx()
-        self.side_window = self.window.subwin(rows, int(cols * 0.2), 0, 0)
-        self.main_window = self.window.subwin(rows, int(cols * 0.8), 0, int(cols * 0.2))
-        self.main_window.scrollok(True)
-        self.main_window_start = 0 
-        self.main_window_end = 0 
 
     def display(self):
         """Print the side_window to the screen"""
@@ -152,8 +139,6 @@ class CourseSubMenu(Menu):
             msg = "%s" % (item)
             self.side_window.addstr(1 + index, 1, msg, curses.A_NORMAL)
         self.side_window.refresh()
-        self.display_main_win(0)
-        curses.doupdate()
 
     def set_position(self, pos: int):
         self.position = pos
@@ -169,7 +154,7 @@ class CourseSubMenu(Menu):
         entry = self.tabs[heading].lower()
         rows_per_item = 1
         right_side_str, left_side_str, right_offset = None, None, None
-        rows, cols = self.main_window.getmaxyx()
+        rows, cols = self.main_win.getmaxyx()
         if entry == "assignments":
             left_side_str = [assignment["name"] for assignment in self.assignments]
 
@@ -236,56 +221,91 @@ class CourseSubMenu(Menu):
 
         # fmt: off
         elif entry == "announcements":
-            left_side_str = [[ announcement["user_name"], announcement["title"], ""] for announcement in self.announcements ]
-            right_side_str = [[ announcement["created_at"][:10], "", ""] for announcement in self.announcements ]
-            right_offset = [[ (cols - len(str(right_str)) - 3), 0,0] for right_str in right_side_str ]
+            left_side_str = [
+                [announcement["user_name"], announcement["title"], ""]
+                for announcement in self.announcements
+            ]
+            right_side_str = [
+                [announcement["created_at"][:10], "", ""]
+                for announcement in self.announcements
+            ]
+            right_offset = [
+                [(cols - len(str(right_str)) - 3), 0, 0] for right_str in right_side_str
+            ]
             rows_per_item = 3
         elif entry == "discussions":
             discussions = get_discussions(self.assignments)
             left_side_str = [assignment["name"] for assignment in discussions]
         elif entry == "grades":
-            left_side_str = [ assignment["name"] for assignment in self.assignments if ("submission" in assignment.keys()) and assignment["submission"]["submitted_at"] != 0 ]
-            right_side_str = [ f"{assignment['points_possible']}/ {assignment['submission']['score']}" for assignment in self.assignments if ("submission" in assignment.keys()) and assignment["submission"]["submitted_at"] != 0 ]
-            right_offset = [ (cols - len(str(right_str)) - 3) for right_str in right_side_str ]
+            left_side_str = [
+                assignment["name"]
+                for assignment in self.assignments
+                if ("submission" in assignment.keys())
+                and assignment["submission"]["submitted_at"] != 0
+            ]
+            right_side_str = [
+                f"{assignment['points_possible']}/ {assignment['submission']['score']}"
+                for assignment in self.assignments
+                if ("submission" in assignment.keys())
+                and assignment["submission"]["submitted_at"] != 0
+            ]
+            right_offset = [
+                (cols - len(str(right_str)) - 3) for right_str in right_side_str
+            ]
         elif entry == "quizzes":
             left_side_str = [quiz["title"][0:20] for quiz in self.quizzes]
             right_side_str = [f"{quiz['due_at'][:10]}" for quiz in self.quizzes]
-            right_offset = [ (cols - len(str(right_str)) - 3) for right_str in right_side_str ]
+            right_offset = [
+                (cols - len(str(right_str)) - 3) for right_str in right_side_str
+            ]
         elif entry == "files":
             left_side_str = [file["display_name"] for file in self.files]
             right_side_str = [file["updated_at"][:10] for file in self.files]
-            right_offset = [ (cols - len(str(right_str)) - 3) for right_str in right_side_str ]
+            right_offset = [
+                (cols - len(str(right_str)) - 3) for right_str in right_side_str
+            ]
         # fmt: on
 
         if not left_side_str:
             return
-        self.main_window.clear()
-        self.main_window.border()
+        self.main_win.clear()
+        self.main_win.border()
 
-        max_rows = rows - 2 
-        self.main_window_end = min((len(left_side_str) - self.main_window_start), (max_rows -  rows_per_item)//rows_per_item)
+        max_rows = rows - 2
+        self.main_win_end = (
+            min(
+                (len(left_side_str) - self.main_win_start),
+                (max_rows - rows_per_item) // rows_per_item,
+            )
+            + 1
+        )
 
-        Logger.info(len(left_side_str) - self.main_window_start)
-        Logger.info( self.main_window_start)
-        Logger.info( self.main_window_end)
-        Logger.info(max_rows)
-        Logger.info("hi")
-        for index, item in enumerate(left_side_str[self.main_window_start:self.main_window_end]):
+        for index, item in enumerate(
+            left_side_str[self.main_win_start : self.main_win_end]
+        ):
             if isinstance(item, str):
-                self.main_window.addstr(1 + index, 1, item)
+                self.main_win.addstr(1 + index, 1, item)
             else:
                 for i in range(rows_per_item):
-                    self.main_window.addstr(rows_per_item* index  + i + 1, 1, item[i])
+                    self.main_win.addstr(rows_per_item * index + i + 1, 1, item[i])
         if right_side_str:
-            for index, item in enumerate(right_side_str[self.main_window_start:self.main_window_end]):
+            for index, item in enumerate(
+                right_side_str[self.main_win_start : self.main_win_end]
+            ):
                 if isinstance(item, str):
-                    self.main_window.addstr(
-                        1 + index, (right_offset[index] if right_offset is not None else 1), item
+                    self.main_win.addstr(
+                        1 + index,
+                        (right_offset[index] if right_offset is not None else 1),
+                        item,
                     )
                 else:
                     for i in range(rows_per_item):
-                        self.main_window.addstr(1 + rows_per_item*index+i, (right_offset[index][i] if right_offset is not None else 1), item[i])
-        self.main_window.refresh()
+                        self.main_win.addstr(
+                            1 + rows_per_item * index + i,
+                            (right_offset[index][i] if right_offset is not None else 1),
+                            item[i],
+                        )
+        self.main_win.refresh()
 
     def toggle_side_main_win(self):
         if self.win_index == 2:
@@ -300,9 +320,33 @@ class CourseSubMenu(Menu):
             self.display_main_win(self.tab_index)
             self.run()
 
-    def open_url(self, url: str):
-        # TODO:
-        pass
+    def open_url(self, current_os, url: str):
+        if current_os == "Linux":
+            subprocess.run("xdg_open %s" % (url))
+        elif current_os == "Windows":
+            subprocess.run("start msedge %s" % (url))
+        elif current_os == "darwin":
+            subprocess.run("open %s" % (url))
+        else:
+            # I'm guessing you're probably using firefox on a BSD
+            for path in ["/usr/bin", "/usr/local/bin"]:
+                if os.path.exists(os.path.join(path, "firefox")):
+                    subprocess.run("firefox %s" % (url))
+
+    def main_win_panel_render(self, content: str | List[str]):
+        """Display a panel over the main window with custom content"""
+        rows, cols = self.main_win.getmaxyx()
+        self.main_win_panel.hide()
+        self.main_win_popup.clear()
+        self.main_win_popup.border()
+        if isinstance(content, list):
+            for row in content:
+                self.main_win_popup.addstr(row)
+        elif isinstance(content, str):
+            self.main_win_popup.addstr(content)
+        self.main_win_popup.refresh()
+        show_panel_hide_on_keypress(self.main_win_popup_panel, self.main_win)
+        self.main_win_panel.show()
 
     def run_main_win(self):
         self.set_keybind_help(
@@ -311,46 +355,122 @@ class CourseSubMenu(Menu):
                 ("k", "prev"),
                 (":", "cmd mode"),
                 ("h", "switch to side panel"),
+                ("o", "open in browser"),
             ]
         )
+
         def main_win_loop(
             left_side_str: List[str],
-            bindings: List[Tuple[int, Callable[None, Any], str]],
+            bindings: List[Tuple[int, Callable[None, Any] | Callable[str, Any], str]],
             right_side_str: List[str] | None = None,
             right_offset: int | None = None,
+            args: Optional[List[str]] = [],
         ):
-            self.main_window.clear()
-            self.main_window.border()
+            rerender = 1
 
-            while True:
-                for index, item in enumerate(left_side_str[self.main_window_start:self.main_window_end]):
-                    mode = (
-                        curses.A_NORMAL if index != self.position else curses.A_REVERSE
-                    )
-                    if isinstance(item, str):
-                        self.main_window.addstr(1 + index, 1, item, mode)
-                    else:
-                        for i in range(rows_per_item):
-                            self.main_window.addstr(rows_per_item* index  + i + 1, 1, item[i], mode)
-                if right_side_str and right_offset:
-                    for index, item in enumerate(right_side_str[self.main_window_start:self.main_window_end]):
+            def rerender_main_win():
+                if rerender:
+                    self.main_win.border()
+                    for index, item in enumerate(
+                        left_side_str[self.main_win_start : self.main_win_end]
+                    ):
                         mode = (
                             curses.A_NORMAL
                             if index != self.position
                             else curses.A_REVERSE
                         )
                         if isinstance(item, str):
-                            self.main_window.addstr(
-                                1 + index*rows_per_item, (right_offset[index]), item, mode
+                            self.main_win.addstr(1 + index, 1, item, mode)
+                        else:
+                            for i in range(rows_per_item):
+                                self.main_win.addstr(
+                                    rows_per_item * index + i + 1, 1, item[i], mode
+                                )
+                    if right_side_str and right_offset:
+                        for index, item in enumerate(
+                            right_side_str[self.main_win_start : self.main_win_end]
+                        ):
+                            mode = (
+                                curses.A_NORMAL
+                                if index != self.position
+                                else curses.A_REVERSE
+                            )
+                            if isinstance(item, str):
+                                self.main_win.addstr(
+                                    1 + index * rows_per_item,
+                                    (right_offset[index]),
+                                    item,
+                                    mode,
+                                )
+                            else:
+                                for i in range(rows_per_item):
+                                    self.main_win.addstr(
+                                        1 + rows_per_item * index + i,
+                                        (
+                                            right_offset[index][i]
+                                            if right_offset is not None
+                                            else 1
+                                        ),
+                                        item[i],
+                                        mode,
+                                    )
+                    self.main_win.move(self.position * rows_per_item + 1, 1)
+                    return 0
+
+            while True:
+                if rerender:
+                    rerender = rerender_main_win()
+                for index, item in enumerate(
+                    left_side_str[self.main_win_start : self.main_win_end]
+                ):
+                    if not (
+                        self.position == index
+                        or self.position - 1 == index
+                        or self.position + 1 == index
+                    ):
+                        continue
+                    mode = (
+                        curses.A_NORMAL if index != self.position else curses.A_REVERSE
+                    )
+                    if isinstance(item, str):
+                        self.main_win.addstr(1 + index, 1, item, mode)
+                    else:
+                        for i in range(rows_per_item):
+                            self.main_win.addstr(
+                                rows_per_item * index + i + 1, 1, item[i], mode
+                            )
+                if right_side_str and right_offset:
+                    for index, item in enumerate(
+                        right_side_str[self.main_win_start : self.main_win_end]
+                    ):
+                        mode = (
+                            curses.A_NORMAL
+                            if index != self.position
+                            else curses.A_REVERSE
+                        )
+                        if isinstance(item, str):
+                            self.main_win.addstr(
+                                1 + index * rows_per_item,
+                                (right_offset[index]),
+                                item,
+                                mode,
                             )
                         else:
                             for i in range(rows_per_item):
-                                self.main_window.addstr(1 + rows_per_item*index+i, (right_offset[index][i] if right_offset is not None else 1), item[i], mode)
+                                self.main_win.addstr(
+                                    1 + rows_per_item * index + i,
+                                    (
+                                        right_offset[index][i]
+                                        if right_offset is not None
+                                        else 1
+                                    ),
+                                    item[i],
+                                    mode,
+                                )
 
-                self.main_window.move(self.position*rows_per_item + 1, 1)
-                self.main_window.refresh()
-
-                key = self.main_window.getch()
+                self.main_win.move(self.position * rows_per_item + 1, 1)
+                self.main_win.refresh()
+                key = self.main_win.getch()
 
                 if key == ord("h"):
                     break
@@ -359,14 +479,20 @@ class CourseSubMenu(Menu):
 
                 for binding in bindings:
                     if key == binding[0]:
-                        binding[1]()
-                        continue
+                        callback_signature_args = getfullargspec(binding[1]).args
+                        if callback_signature_args == []:
+                            binding[1]()
+                            rerender = 1
+                        elif (
+                            len(callback_signature_args) == 1
+                            and callback_signature_args[0] == "url"
+                        ):
+                            binding[1](args[self.position])
+                            rerender = 0
 
         entry = self.tabs[self.tab_index].lower()
         rows_per_item = 1
-        self.main_window.clear()
-        self.main_window.border()
-        rows, cols = self.main_window.getmaxyx()
+        rows, cols = self.main_win.getmaxyx()
         if entry == "assignments":
             assignments = [assignment["name"] for assignment in self.assignments]
             while True:
@@ -374,9 +500,8 @@ class CourseSubMenu(Menu):
                     mode = (
                         curses.A_NORMAL if index != self.position else curses.A_REVERSE
                     )
-                    self.main_window.addstr(1 + index, 1, assignment, mode)
-                self.main_window.border()
-                self.main_window.refresh()
+                    self.main_win.addstr(1 + index, 1, assignment, mode)
+                self.main_win.refresh()
                 key = self.window.getch()
                 if key == curses.KEY_UP or key == ord("k"):
                     self.navigate(-1)
@@ -388,16 +513,69 @@ class CourseSubMenu(Menu):
                     self.gutter_mode()
 
         elif entry == "announcements":
-            left_side_str = [[ announcement["user_name"], announcement["title"], ""] for announcement in self.announcements ]
-            right_side_str = [[ announcement["created_at"][:10], "", ""] for announcement in self.announcements ]
-            right_offset = [[ (cols - len(str(right_str)) - 3), 0,0] for right_str in right_side_str ]
+            # TODO: fix scrolling for announcements
+            # TODO: add scrolling for other tabs
+            def navigate(n: int):
+                if self.position + n < len(
+                    left_side_str[self.main_win_start : self.main_win_end]
+                ):
+                    self.main_win_start = max(0, self.main_win_start + n)
+                    self.main_win_end = (
+                        min(
+                            len(left_side_str[self.main_win_start : self.main_win_end]),
+                            self.main_win_end + n,
+                        )
+                        + 1
+                    )
+                    self.set_position(self.position + n)
+
+            def show_annoucement(id: int):
+                Logger.info("hi")
+                message = [
+                    sub("<[^<]+?>", "", unescape(anouncement["message"]))
+                    for anouncement in self.announcements
+                    if anouncement["id"] == id
+                ]
+                self.main_win_panel_render(message)
+
+            # fmt: off
+            left_side_str = [ [announcement["user_name"], announcement["title"], ""] for announcement in self.announcements ]
+            right_side_str = [ [announcement["created_at"][:10], "", ""] for announcement in self.announcements ]
+            right_offset = [ [(cols - len(str(right_str)) - 3), 0, 0] for right_str in right_side_str ] 
             rows_per_item = 3
             max_rows = rows - 2
-            self.main_window_end = min((len(left_side_str) - self.main_window_start), (max_rows -  rows_per_item)//rows_per_item)
-            main_win_loop(left_side_str, [
-                (ord("j"), lambda: self.set_position(min(self.position + 1, len(left_side_str) - 1))),
-                (ord("k"), lambda: self.set_position(max(self.position - 1, 0))),
-            ], right_side_str, right_offset)
+            self.main_win_end = ( min((len(left_side_str[self.main_win_start :])), (max_rows - rows_per_item) // rows_per_item,) + 1)
+            # fmt: on
+            main_win_loop(
+                left_side_str,
+                [
+                    (
+                        ord("j"),
+                        lambda: self.set_position(
+                            min(
+                                self.position + 1,
+                                len(
+                                    left_side_str[
+                                        self.main_win_start : self.main_win_end
+                                    ]
+                                )
+                                - 1,
+                            )
+                        ),
+                    ),
+                    (ord("k"), lambda: self.set_position(max(self.position - 1, 0))),
+                    (
+                        ord("o"),
+                        lambda: show_annoucement(
+                            self.announcements[self.position + self.main_win_start][
+                                "id"
+                            ]
+                        ),
+                    ),
+                ],
+                right_side_str,
+                right_offset,
+            )
         elif entry == "home":
             assignments = [assignment["name"] for assignment in self.assignments]
             main_win_loop(
@@ -475,23 +653,22 @@ class CourseSubMenu(Menu):
 
         elif entry == "files":
             files = [file for file in self.files]
-            self.main_window.clear()
-            self.main_window.border()
+            self.main_win.clear()
             while True:
                 for index, file in enumerate(files):
                     left_side_str = " %s" % (file["display_name"])
                     right_side_str = " %s" % (file["updated_at"][:10])
-                    _, cols = self.main_window.getmaxyx()
+                    _, cols = self.main_win.getmaxyx()
                     mode = (
                         curses.A_NORMAL if index != self.position else curses.A_REVERSE
                     )
-                    self.main_window.addstr(
+                    self.main_win.addstr(
                         index + 1, cols - len(right_side_str) - 3, right_side_str, mode
                     )
-                    self.main_window.addstr(1 + index, 1, left_side_str, mode)
-                self.main_window.move(self.position + 1, 1)
-                self.main_window.refresh()
-                key = self.main_window.getch()
+                    self.main_win.addstr(1 + index, 1, left_side_str, mode)
+                self.main_win.move(self.position + 1, 1)
+                self.main_win.refresh()
+                key = self.main_win.getch()
                 if key == curses.KEY_UP or key == ord("k"):
                     self.position = max(self.position - 1, 0)
                 elif key == curses.KEY_DOWN or key == ord("j"):
@@ -594,9 +771,9 @@ class StatusBar(Menu):
                 (course[: course.find("(")], course)
                 if (course.find("(") != -1)
                 else course
-            )  # ))
+            )
             for course in courses
-        ]
+        ]  # ))
         self.update_callback = update_callback
         self.change_win_callback = change_win_callback
         self.keybinds = []
@@ -646,9 +823,7 @@ class StatusBar(Menu):
             self.window.move(1, cursor)
             key = self.window.getch()
             if key in [curses.KEY_ENTER, ord("\n")]:
-                submenu = self.update_callback(
-                    self.course_ids[self.position]
-                )  # creates a new CourseSubMenu object
+                submenu = self.update_callback(self.course_ids[self.position])
                 self.prev_win = submenu
                 submenu.display()
                 return submenu
@@ -733,19 +908,22 @@ class Convas(object):
 
         self.keybind_win = curses.newwin(self.height - 3, int(self.width * 0.3), 0, 0)
         self.keybind_panel = panel.new_panel(self.keybind_win)
+        self.message_win = curses.newwin(self.height - 3, int(self.width * 0.3), 0, 0)
+        self.message_panel = panel.new_panel(self.message_win)
 
-        self.main_window = curses.newwin(self.height - 3, self.width, 0, 0)
-        self.main_window_panel = panel.new_panel(self.main_window)
-        self.main_window_panel.top()
-
+        self.content_win = curses.newwin(self.height - 3, self.width, 0, 0)
+        self.content_panel = panel.new_panel(self.content_win)
+        self.content_panel.top()
         self.current_win_keybinds = []
         self.keybind_win.border()
+
+        self.current_os = platform.system()
 
         panel.update_panels()
         curses.doupdate()
 
     @staticmethod
-    def switch_win_callback(switch_to_statusbar: bool, statusbar: Any, win: Any):
+    def switch_win_callback(switch_to_statusbar: bool, statusbar: StatusBar, win: Any):
         if switch_to_statusbar:
             win.display()
             selected = statusbar.focus()
@@ -756,17 +934,12 @@ class Convas(object):
             statusbar.display()
             win.run()
 
-    @staticmethod
-    def show_panel(apanel) -> None:
-        apanel.top()
-        panel.update_panels()
-        curses.doupdate()
-
     def set_keybind_help(self, binds: List[Tuple[str, str]]) -> None:
         self.keybinds = binds
 
     def display_binds(self, opts: Tuple[Any, Any] = (curses.A_NORMAL, curses.A_NORMAL)):
-        """Display keybinds"""
+        """Display keybinds with self.keybind_panel"""
+        Logger.info("Displaying keybinds")
         self.keybind_win.clear()
         rows = 1 + 2  # 2 for borders
         self.keybind_win.addstr(1, 1, "Keybinds")
@@ -782,15 +955,11 @@ class Convas(object):
             )
             rows += 1
         self.keybind_win.resize(rows, self.height - 3)
-        curses.curs_set(0)
         self.keybind_win.border()
-        self.show_panel(self.keybind_panel)
-
-        if self.screen.getch():
-            curses.curs_set(1)
-            self.keybind_panel.bottom()
-            panel.update_panels()
-            curses.doupdate()
+        self.keybind_win.refresh()
+        curses.curs_set(0)
+        show_panel_hide_on_keypress(self.keybind_panel, self.keybind_win)
+        curses.curs_set(1)
 
     def run(self) -> None:
         self.status_bar = StatusBar(
@@ -799,7 +968,7 @@ class Convas(object):
             self.width,
             self.course_ids,
             lambda course_id: CourseSubMenu(
-                self.main_window,
+                self.content_win,
                 course_id,
                 lambda win: self.switch_win_callback(True, self.status_bar, win),
                 self.status_bar.gutter_mode,
