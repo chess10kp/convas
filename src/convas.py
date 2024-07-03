@@ -21,6 +21,7 @@ from helper import Logger, show_panel, show_panel_hide_on_keypress
 
 HOME = os.path.expanduser("~")
 CONFIG_FILE = "%s/.config/convas/config" % HOME
+BORDER = 1
 
 with open(CONFIG_FILE) as file:
     for line in file:
@@ -367,106 +368,80 @@ class CourseSubMenu(Menu):
             args: Optional[List[str]] = [],
         ):
             rerender = 1
+            has_right = right_side_str is not None
 
             def rerender_main_win():
-                if rerender:
-                    self.main_win.border()
-                    for index, item in enumerate(
-                        left_side_str[self.main_win_start : self.main_win_end]
-                    ):
-                        mode = (
-                            curses.A_NORMAL
-                            if index != self.position
-                            else curses.A_REVERSE
+                self.main_win.border()
+                for index in range(self.main_win_start, self.main_win_end):
+                    left = left_side_str[self.main_win_start + index]
+                    right = (
+                        right_side_str[self.main_win_start + index]
+                        if has_right
+                        else None
+                    )
+                    offset = (
+                        right_offset[self.main_win_start + index] if has_right else None
+                    )
+                    if isinstance(left, str):
+                        self.main_win.addstr(1 + index, 1, left[index])
+                        self.main_win.addstr(
+                            1 + index * rows_per_item,
+                            (offset),
                         )
-                        if isinstance(item, str):
-                            self.main_win.addstr(1 + index, 1, item, mode)
-                        else:
-                            for i in range(rows_per_item):
-                                self.main_win.addstr(
-                                    rows_per_item * index + i + 1, 1, item[i], mode
-                                )
-                    if right_side_str and right_offset:
-                        for index, item in enumerate(
-                            right_side_str[self.main_win_start : self.main_win_end]
-                        ):
-                            mode = (
-                                curses.A_NORMAL
-                                if index != self.position
-                                else curses.A_REVERSE
+                    else:
+                        for i in range(rows_per_item):
+                            self.main_win.addstr(
+                                rows_per_item * index + i + 1, 1, left[i]
                             )
-                            if isinstance(item, str):
-                                self.main_win.addstr(
-                                    1 + index * rows_per_item,
-                                    (right_offset[index]),
-                                    item,
-                                    mode,
-                                )
-                            else:
-                                for i in range(rows_per_item):
-                                    self.main_win.addstr(
-                                        1 + rows_per_item * index + i,
-                                        (
-                                            right_offset[index][i]
-                                            if right_offset is not None
-                                            else 1
-                                        ),
-                                        item[i],
-                                        mode,
-                                    )
-                    self.main_win.move(self.position * rows_per_item + 1, 1)
-                    return 0
+                            self.main_win.addstr(
+                                1 + rows_per_item * index + i,
+                                (offset[i] if offset is not None else 1),
+                                right[i],
+                            )
+                self.main_win.move(self.position * rows_per_item + BORDER, BORDER)
+                return 0  # return 0 to stop rerendering
 
             while True:
                 if rerender:
                     rerender = rerender_main_win()
-                for index, item in enumerate(
-                    left_side_str[self.main_win_start : self.main_win_end]
-                ):
+                for index in range(self.main_win_start, self.main_win_end):
                     if not (
                         self.position == index
                         or self.position - 1 == index
                         or self.position + 1 == index
-                    ):
+                    ):  # rerender only if the entry is the previous or the next one of self.position
                         continue
                     mode = (
                         curses.A_NORMAL if index != self.position else curses.A_REVERSE
                     )
-                    if isinstance(item, str):
-                        self.main_win.addstr(1 + index, 1, item, mode)
+                    left = left_side_str[self.main_win_start + index]
+                    right = (
+                        right_side_str[self.main_win_start + index]
+                        if has_right
+                        else None
+                    )
+                    offset = (
+                        right_offset[self.main_win_start + index] if has_right else None
+                    )
+                    if isinstance(left, str):
+                        self.main_win.addstr(1 + index, 1, left, mode)
+                        self.main_win.addstr(
+                            1 + index * rows_per_item,
+                            (offset[index]),
+                            right[index],
+                            mode,
+                        )
                     else:
                         for i in range(rows_per_item):
                             self.main_win.addstr(
-                                rows_per_item * index + i + 1, 1, item[i], mode
+                                rows_per_item * index + i + 1, 1, left[i], mode
                             )
-                if right_side_str and right_offset:
-                    for index, item in enumerate(
-                        right_side_str[self.main_win_start : self.main_win_end]
-                    ):
-                        mode = (
-                            curses.A_NORMAL
-                            if index != self.position
-                            else curses.A_REVERSE
-                        )
-                        if isinstance(item, str):
                             self.main_win.addstr(
-                                1 + index * rows_per_item,
-                                (right_offset[index]),
-                                item,
+                                1 + rows_per_item * index + i,
+                                (offset[i] if offset is not None else 1),
+                                right[i],
                                 mode,
                             )
-                        else:
-                            for i in range(rows_per_item):
-                                self.main_win.addstr(
-                                    1 + rows_per_item * index + i,
-                                    (
-                                        right_offset[index][i]
-                                        if right_offset is not None
-                                        else 1
-                                    ),
-                                    item[i],
-                                    mode,
-                                )
 
                 self.main_win.move(self.position * rows_per_item + 1, 1)
                 self.main_win.refresh()
@@ -513,7 +488,6 @@ class CourseSubMenu(Menu):
                     self.gutter_mode()
 
         elif entry == "announcements":
-            # TODO: fix scrolling for announcements
             # TODO: add scrolling for other tabs
             def navigate(n: int):
                 if self.position + n < len(
@@ -597,6 +571,7 @@ class CourseSubMenu(Menu):
                 ],
             )
             # TODO: Add "o" to open in browser
+            # TODO: Remove the cursor from all screens except when entering input
 
         elif entry == "discussions":
             pass
