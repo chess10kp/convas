@@ -96,6 +96,7 @@ class CourseSubMenu(Menu):
         self.assignments: list[dict[str, str]] = loads(
             (open(f"./assignments{course_id}.json").read())
         )
+        self.main_rerender = 0
         self.switch_to_statusbar_callback = switch_to_statusbar_callback
 
         def file_exists(filename: str) -> bool:
@@ -220,7 +221,6 @@ class CourseSubMenu(Menu):
 
             left_side_str = [assignment["name"] for assignment in self.assignments]
 
-        # fmt: off
         elif entry == "announcements":
             left_side_str = [
                 [announcement["user_name"], announcement["title"], ""]
@@ -265,7 +265,6 @@ class CourseSubMenu(Menu):
             right_offset = [
                 (cols - len(str(right_str)) - 3) for right_str in right_side_str
             ]
-        # fmt: on
 
         if not left_side_str:
             return
@@ -367,7 +366,7 @@ class CourseSubMenu(Menu):
             right_offset: int | None = None,
             args: Optional[List[str]] = [],
         ):
-            rerender = 1
+            self.main_rerender = 1
             has_right = right_side_str is not None
 
             def rerender_main_win():
@@ -391,19 +390,20 @@ class CourseSubMenu(Menu):
                     else:
                         for i in range(rows_per_item):
                             self.main_win.addstr(
-                                rows_per_item * index + i + 1, 1, left[i]
+                                rows_per_item * (index - self.main_win_start) + i + 1,
+                                1,
+                                left[i],
                             )
                             self.main_win.addstr(
-                                1 + rows_per_item * index + i,
+                                1 + rows_per_item * (index - self.main_win_start) + i,
                                 (offset[i] if offset is not None else 1),
                                 right[i],
                             )
-                self.main_win.move(self.position * rows_per_item + BORDER, BORDER)
-                return 0  # return 0 to stop rerendering
+                return 0  # return 0 to stop rerendering all entries again
 
             while True:
-                if rerender:
-                    rerender = rerender_main_win()
+                if self.main_rerender:
+                    self.main_rerender = rerender_main_win()
                 for index in range(self.main_win_start, self.main_win_end):
                     if not (
                         self.position == index
@@ -434,20 +434,28 @@ class CourseSubMenu(Menu):
                     else:
                         for i in range(rows_per_item):
                             self.main_win.addstr(
-                                rows_per_item * index + i + 1, 1, left[i], mode
+                                rows_per_item * (index - self.main_win_start) + i + 1,
+                                1,
+                                left[i],
+                                mode,
                             )
                             self.main_win.addstr(
-                                1 + rows_per_item * index + i,
+                                1 + rows_per_item * (index - self.main_win_start) + i,
                                 (offset[i] if offset is not None else 1),
                                 right[i],
                                 mode,
                             )
 
-                self.main_win.move(self.position * rows_per_item + 1, 1)
+                self.main_win.move(
+                    (self.position - self.main_win_start) * rows_per_item + 1, 1
+                )
                 self.main_win.refresh()
                 key = self.main_win.getch()
 
                 if key == ord("h"):
+                    self.main_win_render = 1
+                    self.main_win_start = 0
+                    self.main_win_end = 0
                     break
                 elif key == ord(":"):
                     self.gutter_mode()
@@ -457,13 +465,13 @@ class CourseSubMenu(Menu):
                         callback_signature_args = getfullargspec(binding[1]).args
                         if callback_signature_args == []:
                             binding[1]()
-                            rerender = 1
+                            self.main_rerender = 1
                         elif (
                             len(callback_signature_args) == 1
                             and callback_signature_args[0] == "url"
                         ):
                             binding[1](args[self.position])
-                            rerender = 0
+                            self.main_rerender = 0
 
         entry = self.tabs[self.tab_index].lower()
         rows_per_item = 1
@@ -488,20 +496,33 @@ class CourseSubMenu(Menu):
                     self.gutter_mode()
 
         elif entry == "announcements":
-            # TODO: add scrolling for other tabs
-            def navigate(n: int):
-                if self.position + n < len(
-                    left_side_str[self.main_win_start : self.main_win_end]
+
+            def navigate(n: int) -> bool:
+                Logger.info(
+                    f"{ self.position } {len(self.announcements)} {self.main_win_start} {self.main_win_end} {n}"
+                )
+                if (
+                    self.position + n <= self.main_win_end - 1
+                    and self.position + n >= self.main_win_start
                 ):
-                    self.main_win_start = max(0, self.main_win_start + n)
-                    self.main_win_end = (
-                        min(
-                            len(left_side_str[self.main_win_start : self.main_win_end]),
-                            self.main_win_end + n,
-                        )
-                        + 1
-                    )
-                    self.set_position(self.position + n)
+                    self.position += n
+                elif (
+                    self.position + n + self.main_win_start
+                    > len(self.announcements) - 1
+                ):
+                    return
+                elif self.main_win_start > self.position + n:
+                    if self.main_win_start + n >= 0:
+                        self.main_win_start += n
+                        self.position += n
+                        self.main_win_end += n
+                        self.main_rerender = 1
+                elif self.position + n > self.main_win_start:
+                    if self.main_win_start + n < len(self.announcements):
+                        self.main_win_start += n
+                        self.position += n
+                        self.main_win_end += n
+                        self.main_rerender = 1
 
             def show_annoucement(id: int):
                 Logger.info("hi")
@@ -525,19 +546,9 @@ class CourseSubMenu(Menu):
                 [
                     (
                         ord("j"),
-                        lambda: self.set_position(
-                            min(
-                                self.position + 1,
-                                len(
-                                    left_side_str[
-                                        self.main_win_start : self.main_win_end
-                                    ]
-                                )
-                                - 1,
-                            )
-                        ),
+                        lambda: navigate(1),
                     ),
-                    (ord("k"), lambda: self.set_position(max(self.position - 1, 0))),
+                    (ord("k"), lambda: navigate(-1)),
                     (
                         ord("o"),
                         lambda: show_annoucement(
@@ -635,7 +646,9 @@ class CourseSubMenu(Menu):
                     right_side_str = " %s" % (file["updated_at"][:10])
                     _, cols = self.main_win.getmaxyx()
                     mode = (
-                        curses.A_NORMAL if index != self.position else curses.A_REVERSE
+                        curses.A_NORMAL
+                        if index != self.position + self.main_win_start
+                        else curses.A_REVERSE
                     )
                     self.main_win.addstr(
                         index + 1, cols - len(right_side_str) - 3, right_side_str, mode
