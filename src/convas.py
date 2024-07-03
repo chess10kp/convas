@@ -779,7 +779,9 @@ class StatusBar(Menu):
         self.keybinds = []
         self.cmds = {
             "help": lambda: display_binds((curses.A_BOLD, curses.A_NORMAL)),
+            "h": lambda: display_binds((curses.A_BOLD, curses.A_NORMAL)),
             "quit": lambda: None,
+            "q": lambda: None,
         }
         self.set_keybind_help = set_keybind_help
 
