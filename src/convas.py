@@ -8,7 +8,7 @@ import subprocess
 from curses import panel
 from inspect import getfullargspec
 from json import loads
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable
 from html import unescape
 from config import Config
 from convas_requests import (
@@ -17,12 +17,13 @@ from convas_requests import (
     get_current_course_names,
     get_discussions,
 )
-from helper import Logger, show_panel, show_panel_hide_on_keypress
+from helper import Logger, show_panel_hide_on_keypress
 
 HOME = os.path.expanduser("~")
 CONFIG_FILE = "%s/.config/convas/config" % HOME
 BORDER = 1
 
+config = None
 with open(CONFIG_FILE) as file:
     for line in file:
         if "=" in line:
@@ -34,15 +35,15 @@ if "config" not in globals():
 
 url = "https://canvas.umd.umich.edu/api/v1/courses"
 
-headers = {"Authorization": f"Bearer {config.get_token()}"}
+headers = {"Authorization": f"Bearer {config.get_token() if config else None}"}
 
 
 class Menu(object):
-    def __init__(self, items, stdscreen):
+    def __init__(self, _, stdscreen):
         self.window = stdscreen.subwin(0, 0)
         self.position = 0
 
-    def navigate(self, n):
+    def navigate(self, _):
         raise NotImplementedError
 
     def display(self):
@@ -59,7 +60,7 @@ class CourseSubMenu(Menu):
         course_id: int,
         switch_to_statusbar_callback: Callable[Any, None],
         gutter_callback: Callable[None, None],
-        keybind_help: Callable[List[Tuple[str, str]], None],
+        keybind_help: Callable[list[tuple[str, str]], None],
     ):
         self.window = window
         self.window.scrollok(True)
@@ -113,12 +114,15 @@ class CourseSubMenu(Menu):
         if file_exists(f"./announcements{course_id}.json"):
             self.announcements = loads(open(f"./announcements{course_id}.json").read())
 
-        if not isinstance(self.files, List):
+        if not isinstance(self.files, list):
             self.tabs.remove("Files")
-        if not isinstance(self.quizzes, List):
+        if not isinstance(self.quizzes, list):
             self.tabs.remove("Quizzes")
-        if not isinstance(self.announcements, List):
+        if not isinstance(self.announcements, list):
             self.tabs.remove("Announcements")
+
+        def display_assignment_info(self):
+            return None
 
         super().__init__(
             [
@@ -272,13 +276,11 @@ class CourseSubMenu(Menu):
         self.main_win.border()
 
         max_rows = rows - 2
-        self.main_win_end = (
-            min(
-                (len(left_side_str) - self.main_win_start),
-                (max_rows - rows_per_item) // rows_per_item,
-            )
-            + 1
+        self.main_win_end = min(
+            (len(left_side_str) - self.main_win_start),
+            (max_rows - rows_per_item) // rows_per_item,
         )
+        Logger.info(f"value of end: {self.main_win_end} ")
 
         for index, item in enumerate(
             left_side_str[self.main_win_start : self.main_win_end]
@@ -333,7 +335,7 @@ class CourseSubMenu(Menu):
                 if os.path.exists(os.path.join(path, "firefox")):
                     subprocess.run("firefox %s" % (url))
 
-    def main_win_panel_render(self, content: str | List[str]):
+    def main_win_panel_render(self, content: str | list[str]):
         """Display a panel over the main window with custom content"""
         rows, cols = self.main_win.getmaxyx()
         self.main_win_panel.hide()
@@ -360,11 +362,11 @@ class CourseSubMenu(Menu):
         )
 
         def main_win_loop(
-            left_side_str: List[str],
-            bindings: List[Tuple[int, Callable[None, Any] | Callable[str, Any], str]],
-            right_side_str: List[str] | None = None,
+            left_side_str: list[str],
+            bindings: list[tuple[int, Callable[None, Any] | Callable[str, Any], str]],
+            right_side_str: list[str] | None = None,
             right_offset: int | None = None,
-            args: Optional[List[str]] = [],
+            args: list[str] = [],
         ):
             self.main_rerender = 1
             has_right = right_side_str is not None
@@ -372,15 +374,12 @@ class CourseSubMenu(Menu):
             def rerender_main_win():
                 self.main_win.border()
                 for index in range(self.main_win_start, self.main_win_end):
-                    left = left_side_str[self.main_win_start + index]
-                    right = (
-                        right_side_str[self.main_win_start + index]
-                        if has_right
-                        else None
+                    Logger.info(
+                        f"renderer call: index: {index} start: {self.main_win_start} end: {self.main_win_end} len: {len(self.announcements)}"
                     )
-                    offset = (
-                        right_offset[self.main_win_start + index] if has_right else None
-                    )
+                    left = left_side_str[index]
+                    right = right_side_str[index] if has_right else None
+                    offset = right_offset[index] if has_right else None
                     if isinstance(left, str):
                         self.main_win.addstr(1 + index, 1, left[index])
                         self.main_win.addstr(
@@ -403,6 +402,7 @@ class CourseSubMenu(Menu):
 
             while True:
                 if self.main_rerender:
+                    self.main_win.clear()
                     self.main_rerender = rerender_main_win()
                 for index in range(self.main_win_start, self.main_win_end):
                     if not (
@@ -414,15 +414,9 @@ class CourseSubMenu(Menu):
                     mode = (
                         curses.A_NORMAL if index != self.position else curses.A_REVERSE
                     )
-                    left = left_side_str[self.main_win_start + index]
-                    right = (
-                        right_side_str[self.main_win_start + index]
-                        if has_right
-                        else None
-                    )
-                    offset = (
-                        right_offset[self.main_win_start + index] if has_right else None
-                    )
+                    left = left_side_str[index]
+                    right = right_side_str[index] if has_right else None
+                    offset = right_offset[index] if has_right else None
                     if isinstance(left, str):
                         self.main_win.addstr(1 + index, 1, left, mode)
                         self.main_win.addstr(
@@ -518,14 +512,15 @@ class CourseSubMenu(Menu):
                         self.main_win_end += n
                         self.main_rerender = 1
                 elif self.position + n > self.main_win_start:
-                    if self.main_win_start + n < len(self.announcements):
+                    if self.main_win_start + n + self.position < len(
+                        self.announcements
+                    ):
                         self.main_win_start += n
                         self.position += n
                         self.main_win_end += n
                         self.main_rerender = 1
 
             def show_annoucement(id: int):
-                Logger.info("hi")
                 message = [
                     sub("<[^<]+?>", "", unescape(anouncement["message"]))
                     for anouncement in self.announcements
@@ -539,7 +534,7 @@ class CourseSubMenu(Menu):
             right_offset = [ [(cols - len(str(right_str)) - 3), 0, 0] for right_str in right_side_str ] 
             rows_per_item = 3
             max_rows = rows - 2
-            self.main_win_end = ( min((len(left_side_str[self.main_win_start :])), (max_rows - rows_per_item) // rows_per_item,) + 1)
+            self.main_win_end = ( min((len(left_side_str[self.main_win_start :])), (max_rows - rows_per_item) // rows_per_item,) )
             # fmt: on
             main_win_loop(
                 left_side_str,
@@ -742,14 +737,14 @@ class CourseSubMenu(Menu):
 class StatusBar(Menu):
     def __init__(
         self,
-        courses: List[str],
+        courses: list[str],
         height: int,
         width: int,
-        course_ids: List[int],
+        course_ids: list[str],
         update_callback: Callable[int, None],
         change_win_callback: Callable[Any, None],
-        set_keybind_help: Callable[List[Tuple[str, str]], None],
-        display_binds: Callable[Tuple[Any, Any], None],
+        set_keybind_help: Callable[list[tuple[str, str]], None],
+        display_binds: Callable[tuple[Any, Any], None],
     ):
         self.window = curses.newwin(3, width, height - 3, 0)
         self.position = 0
@@ -830,7 +825,7 @@ class StatusBar(Menu):
         self.window.refresh()
 
     @staticmethod
-    def eval_command(cmds: Dict[str, Callable[None, None]], cmd: str) -> bool:
+    def eval_command(cmds: dict[str, Callable[None, None]], cmd: str) -> bool:
         if cmd in cmds.keys():
             cmds[cmd]()
             return True
@@ -891,8 +886,8 @@ class Convas(object):
         self.url = "https://canvas.umd.umich.edu/api/v1/courses"
         self.screen = stdscreen
         self.course_info = loads(open("data.json").read())
-        self.course_names: List[str] = get_current_course_names(self.course_info)
-        self.course_ids: List[str] = get_current_course_id(self.course_info)
+        self.course_names: list[str] = get_current_course_names(self.course_info)
+        self.course_ids: list[str] = get_current_course_id(self.course_info)
         self.height, self.width = stdscreen.getmaxyx()
         self.status_bar: StatusBar = None
 
@@ -924,10 +919,10 @@ class Convas(object):
             statusbar.display()
             win.run()
 
-    def set_keybind_help(self, binds: List[Tuple[str, str]]) -> None:
+    def set_keybind_help(self, binds: list[tuple[str, str]]) -> None:
         self.keybinds = binds
 
-    def display_binds(self, opts: Tuple[Any, Any] = (curses.A_NORMAL, curses.A_NORMAL)):
+    def display_binds(self, opts: tuple[Any, Any] = (curses.A_NORMAL, curses.A_NORMAL)):
         """Display keybinds with self.keybind_panel"""
         Logger.info("Displaying keybinds")
         self.keybind_win.clear()
