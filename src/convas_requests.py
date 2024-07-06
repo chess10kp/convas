@@ -2,14 +2,9 @@
 
 import json
 import os
-import subprocess
-import time
-from collections import namedtuple
-from curses import panel, wrapper
-from enum import Enum
-from json import loads
-from typing import Dict, Generator, List, Tuple
 from urllib import error, request
+from urllib.request import Request
+from http.client import HTTPResponse
 
 from helper import Logger
 
@@ -17,17 +12,19 @@ HOME = os.path.expanduser("~")
 CONFIG_FILE = "%s/.config/convas/config" % HOME
 
 
-def get_paginated_responses(url, headers) -> list[str] | None:
-    next_page = url
-    data = []
+def get_paginated_responses(url: str, headers: dict[str, str]) -> list[str] | None:
+    next_page: str = url
+    data: list[str] = []
     while next_page:
-        response = request.urlopen(next_page, headers=headers)
-        if response.status_code == 404:
+        req: Request = Request(url, headers=headers)
+        response = request.urlopen(req)
+        status_code: int = response.getcode()
+        if status_code == 404:
             return None
-        elif response.status_code != 200:
-            print(f"Error: {response.status_code}")
+        elif status_code != 200:
+            print(f"Error: {status_code}")
             return None
-        response_data = response.read().decode("utf-8")
+        response_data: str = response.read().decode("utf-8")
         response.close()
         data.extend(response_data)
         next_page = response.links.get("next", {}).get("url")
@@ -39,7 +36,7 @@ def get_course_names(json_obj) -> list[str]:
     return [course["name"] for course in json_obj]
 
 
-def get_current_courses(json_obj) -> list[Dict[str, str]]:
+def get_current_courses(json_obj) -> list[dict[str, str]]:
     return [
         course
         for course in json_obj
@@ -47,12 +44,12 @@ def get_current_courses(json_obj) -> list[Dict[str, str]]:
     ]
 
 
-def get_discussions(assignments: List[Dict[str, str]]) -> List[Dict[str, str]]:
+def get_discussions(assignments: list[dict[str, str]]) -> list[dict[str, str]]:
     return [
         discussion
         for discussion in assignments
-        if "submission_type" in discussion.keys() and 
-        "discussion_topic" in discussion["submission_type"]
+        if "submission_type" in discussion.keys()
+        and "discussion_topic" in discussion["submission_type"]
     ]
 
 
@@ -98,8 +95,11 @@ def get_files(url: str, headers, course_id: int):
     return files
 
 
-def download_file(id: int, course_id: int, outfile: str, headers) -> bool:
+def download_file(
+    url: str, id: int, course_id: int, outfile: str, headers: dict[str, str]
+) -> bool:
     try:
+        response = HTTPResponse | None
         with request.urlopen(url) as response:
             with open(outfile, "wb") as out_file:
                 out_file.write(response.read())

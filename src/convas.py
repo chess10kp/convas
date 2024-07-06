@@ -73,7 +73,6 @@ class CourseSubMenu(Menu):
             "Home",
             "Announcements",
             "Assignments",
-            "Discussions",
             "Grades",
             "Quizzes",
             "Files",
@@ -139,7 +138,7 @@ class CourseSubMenu(Menu):
 
     def display(self):
         """Print the side_window to the screen"""
-        self.side_window.clear()
+        self.side_window.erase()
         self.side_window.border()
         for index, item in enumerate(self.tabs):
             msg = "%s" % (item)
@@ -272,7 +271,7 @@ class CourseSubMenu(Menu):
 
         if not left_side_str:
             return
-        self.main_win.clear()
+        self.main_win.erase()
         self.main_win.border()
 
         max_rows = rows - 2
@@ -310,6 +309,7 @@ class CourseSubMenu(Menu):
         self.main_win.refresh()
 
     def toggle_side_main_win(self):
+        # TODO: optimize menu to rerender only the current menu
         if self.win_index == 2:
             self.win_index = 3
             self.position = 0
@@ -337,15 +337,21 @@ class CourseSubMenu(Menu):
 
     def main_win_panel_render(self, content: str | list[str]):
         """Display a panel over the main window with custom content"""
-        rows, cols = self.main_win.getmaxyx()
         self.main_win_panel.hide()
-        self.main_win_popup.clear()
+        self.main_win_popup.erase()
         self.main_win_popup.border()
         if isinstance(content, list):
             for row in content:
                 self.main_win_popup.addstr(row)
         elif isinstance(content, str):
-            self.main_win_popup.addstr(content)
+            h, w = self.main_win_popup.getmaxyx()
+            lines = (len(content) + w + 2 - 1) // w
+            s = 0
+            e = w - 2
+            for line in range(lines):
+                self.main_win_popup.addstr(line + 1, 1, content[s:e])
+                s = e
+                e += w - 2
         self.main_win_popup.refresh()
         show_panel_hide_on_keypress(self.main_win_popup_panel, self.main_win)
         self.main_win_panel.show()
@@ -366,7 +372,7 @@ class CourseSubMenu(Menu):
             bindings: list[tuple[int, Callable[None, Any] | Callable[str, Any], str]],
             right_side_str: list[str] | None = None,
             right_offset: int | None = None,
-            args: list[str] = [],
+            args: list[str] | None = None,
         ):
             self.main_rerender = 1
             has_right = right_side_str is not None
@@ -384,7 +390,8 @@ class CourseSubMenu(Menu):
                         self.main_win.addstr(1 + index, 1, left[index])
                         self.main_win.addstr(
                             1 + index * rows_per_item,
-                            (offset),
+                            (offset if offset is not None else 1),
+                            left[index],
                         )
                     else:
                         for i in range(rows_per_item):
@@ -402,7 +409,8 @@ class CourseSubMenu(Menu):
 
             while True:
                 if self.main_rerender:
-                    self.main_win.clear()
+                    Logger.info("Rerender has been triggered")
+                    self.main_win.erase()
                     self.main_rerender = rerender_main_win()
                 for index in range(self.main_win_start, self.main_win_end):
                     if not (
@@ -415,14 +423,14 @@ class CourseSubMenu(Menu):
                         curses.A_NORMAL if index != self.position else curses.A_REVERSE
                     )
                     left = left_side_str[index]
-                    right = right_side_str[index] if has_right else None
-                    offset = right_offset[index] if has_right else None
+                    right = right_side_str[index] if has_right else ""
+                    offset = right_offset[index] if has_right else 1
                     if isinstance(left, str):
                         self.main_win.addstr(1 + index, 1, left, mode)
                         self.main_win.addstr(
                             1 + index * rows_per_item,
-                            (offset[index]),
-                            right[index],
+                            (offset),
+                            right,
                             mode,
                         )
                     else:
@@ -526,7 +534,7 @@ class CourseSubMenu(Menu):
                     for anouncement in self.announcements
                     if anouncement["id"] == id
                 ]
-                self.main_win_panel_render(message)
+                self.main_win_panel_render(message[0])
 
             # fmt: off
             left_side_str = [ [announcement["user_name"], announcement["title"], ""] for announcement in self.announcements ]
@@ -776,7 +784,7 @@ class StatusBar(Menu):
             self.position = len(self.courses) - 1
 
     def display(self) -> None:
-        self.window.clear()
+        self.window.erase()
         self.window.border()
         status_offset = 1
         for index, course in enumerate(self.courses):
@@ -795,7 +803,7 @@ class StatusBar(Menu):
         self.set_keybind_help([("j", "next"), ("k", "prev"), (":", "cmd mode")])
         while True:
             cursor, left_offset = 3, 3
-            self.window.clear()
+            self.window.erase()
             self.window.border()
             for index, course in enumerate(self.courses):
                 mode = curses.A_REVERSE if index == self.position else curses.A_NORMAL
@@ -845,7 +853,7 @@ class TextInput:
     def run(self) -> None:
         buffer = ""
         cursor = 1
-        self.window.clear()
+        self.window.erase()
         self.window.border()
         while True:
             self.window.addstr(1, 1, buffer)
@@ -858,7 +866,7 @@ class TextInput:
             elif key == curses.KEY_BACKSPACE or key == 127:
                 buffer = buffer[:-1]
                 cursor = max(1, cursor - 1)
-                self.window.clear()
+                self.window.erase()
                 self.window.border()
             elif key == 2:  # C-b
                 cursor = max(1, cursor - 1)
