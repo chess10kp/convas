@@ -63,6 +63,7 @@ class CourseSubMenu(Menu):
         switch_to_statusbar_callback: Callable[[Any], None],
         gutter_callback: Callable[[None], None],
         keybind_help: Callable[[list[tuple[str, str]]], None],
+        notify: Callable[[str, str], bool],
     ):
         self.window = window
         self.current_os = platform.system()
@@ -72,6 +73,7 @@ class CourseSubMenu(Menu):
         self.tab_index = 0
         self.gutter_mode = gutter_callback
         self.set_keybind_help = keybind_help
+        self.notify = notify
         self.tabs = [
             "Home",
             "Announcements",
@@ -372,7 +374,6 @@ class CourseSubMenu(Menu):
                 e += w - 2
         self.main_win_popup.refresh()
         show_panel_hide_on_keypress(self.main_win_popup_panel, self.main_win)
-        self.main_win_panel.show()
 
     def run_main_win(self):
         self.set_keybind_help(
@@ -723,13 +724,30 @@ class CourseSubMenu(Menu):
                 [(cols - len(str(right_str)) - 3)] for right_str in right_side_str
             ]
 
-            def download_file_at_cursor(url: str, file_id: str, name: str):
+            def download_file_at_cursor(
+                current_os: str, url: str, file_id: str, name: str
+            ):
+                if current_os == "Linux":
+                    download_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+                elif current_os == "Windows":
+                    download_dir = os.path.join(os.environ["USERPROFILE"], "Downloads")
+                elif current_os == "darwin":
+                    download_dir = os.path.expanduser("~/Downloads")
+                else:
+                    download_dir = os.path.expanduser("~/Downloads")
+
+                file_path = os.path.join(download_dir, name)
                 download = download_file(
-                    url, file_id, course_id=self.course_id, outfile=name, headers={}
+                    url,
+                    file_id,
+                    course_id=self.course_id,
+                    outfile=file_path,
+                    headers={},
                 )
                 if not download:
-                    # TODO: SEND A MESSAGE TO THE USER
+                    self.notify("Error: ", "file not downloaded")
                     return None
+                self.notify("Downloaded", f"{name} downloaded to {download_dir}")
 
             main_win_loop(
                 left_side_str,
@@ -739,6 +757,7 @@ class CourseSubMenu(Menu):
                     (
                         ord("d"),
                         lambda: download_file_at_cursor(
+                            self.current_os,
                             files[self.position]["url"],
                             files[self.position]["id"],
                             files[self.position]["display_name"],
@@ -968,8 +987,8 @@ class Convas(object):
 
         self.keybind_win = curses.newwin(self.height - 3, int(self.width * 0.3), 0, 0)
         self.keybind_panel = panel.new_panel(self.keybind_win)
-        self.message_win = curses.newwin(self.height - 3, int(self.width * 0.3), 0, 0)
-        self.message_panel = panel.new_panel(self.message_win)
+        self.notify_win = curses.newwin(5, int(self.width * 0.3), 0, 0)
+        self.notify_panel = panel.new_panel(self.notify_win)
 
         self.content_win = curses.newwin(self.height - 3, self.width, 0, 0)
         self.content_panel = panel.new_panel(self.content_win)
@@ -1016,8 +1035,48 @@ class Convas(object):
         self.keybind_win.refresh()
         show_panel_hide_on_keypress(self.keybind_panel, self.keybind_win)
 
-    def notify(self, opts: tuple[Any, Any] = (curses.A_BOLD, curses.A_NORMAL)):
-        pass
+    def notify(
+        self,
+        heading: str,
+        msg: str = "",
+        opts: tuple[Any, Any] = (curses.A_BOLD, curses.A_NORMAL),
+    ) -> bool:
+        self.notify_win.clear()
+        self.notify_win.border()
+        _, w = self.notify_win.getmaxyx()
+        cur = 1
+        row = 1
+        heading_words = heading.split(" ")
+        msg_words = msg.split(" ")
+
+        for word in heading_words:
+            Logger.info(word)
+            if cur + len(word) + 1 < w:
+                self.notify_win.addstr(row, cur, word + " ")
+                cur += len(word) + 1
+            elif row < 3:
+                cur = 1
+                row += 1
+            else:
+                self.notify_win.addstr(row, w - 4, "...")
+
+        cur = 1
+        row += 1
+        for word in msg_words:
+            if cur + len(word) + 1 < w:
+                self.notify_win.addstr(row, cur, word + " ")
+                cur += len(word) + 1
+            elif row < 6:
+                cur = 1
+                row += 1
+            else:
+                self.notify_win.addstr(row, w - 4, "...")
+
+        self.notify_win.border()
+        self.notify_win.refresh()
+        show_panel_hide_on_keypress(self.notify_panel, self.notify_win)
+
+        return True
 
     def run(self) -> None:
         _ = curses.curs_set(0)
@@ -1032,6 +1091,7 @@ class Convas(object):
                 lambda win: self.switch_win_callback(True, self.status_bar, win),
                 self.status_bar.gutter_mode,
                 self.set_keybind_help,
+                self.notify,
             ),
             self.switch_win_callback,
             self.set_keybind_help,
