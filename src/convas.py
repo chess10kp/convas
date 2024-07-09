@@ -259,20 +259,26 @@ class CourseSubMenu(Menu):
 
         elif entry == "grades":
             left_side_str = [
-                assignment["name"]
+                [assignment["name"], assignment["submission"]["submitted_at"][:10], ""]
                 for assignment in self.assignments
                 if ("submission" in assignment.keys())
                 and assignment["submission"]["submitted_at"] != 0
             ]
             right_side_str = [
-                f"{assignment['points_possible']}/ {assignment['submission']['score']}"
+                [
+                    f"{assignment['points_possible']}/ {assignment['submission']['score']}",
+                    "",
+                    "",
+                ]
                 for assignment in self.assignments
                 if ("submission" in assignment.keys())
                 and assignment["submission"]["submitted_at"] != 0
             ]
             right_offset = [
-                (cols - len(str(right_str)) - 3) for right_str in right_side_str
+                [(cols - len(str(right_str)) - 3), 0, 0] for right_str in right_side_str
             ]
+            rows_per_item = 3
+
         elif entry == "quizzes":
             left_side_str = [quiz["title"][0:20] for quiz in self.quizzes]
             right_side_str = [f"{quiz['due_at'][:10]}" for quiz in self.quizzes]
@@ -296,7 +302,6 @@ class CourseSubMenu(Menu):
             (len(left_side_str) - self.main_win_start),
             (max_rows - rows_per_item) // rows_per_item,
         )
-
         for index, item in enumerate(
             left_side_str[self.main_win_start : self.main_win_end]
         ):
@@ -667,18 +672,50 @@ class CourseSubMenu(Menu):
                 if ("submission" in assignment.keys())
                 and assignment["submission"]["submitted_at"] != 0
             ]
-            left_side_str = [[assignment["name"]] for assignment in graded_assignments]
+
+            def navigate(n: int) -> bool:
+                if (
+                    self.position + n <= self.main_win_end - 1
+                    and self.position + n >= self.main_win_start
+                ):
+                    self.position += n
+                elif (
+                    self.position + n + self.main_win_start
+                    > len(graded_assignments) - 1
+                ):
+                    return
+                elif self.main_win_start > self.position + n:
+                    if self.main_win_start + n >= 0:
+                        self.main_win_start += n
+                        self.position += n
+                        self.main_win_end += n
+                        self.main_rerender = 1
+                elif self.position + n > self.main_win_start:
+                    if self.main_win_start + n + self.position < len(
+                        graded_assignments
+                    ):
+                        self.main_win_start += n
+                        self.position += n
+                        self.main_win_end += n
+                        self.main_rerender = 1
+
+            left_side_str = [
+                [assignment["name"], assignment["submission"]["submitted_at"][:10], ""]
+                for assignment in graded_assignments
+            ]
             right_side_str = [
                 [
-                    f"{assignment['points_possible']}/ {assignment['submission']['score']}"
+                    f"{assignment['points_possible']}/ {assignment['submission']['score']}",
+                    "",
+                    "",
                 ]
                 for assignment in graded_assignments
             ]
             right_offset = [
-                [(cols - len(str(right_str)) - 3)] for right_str in right_side_str
+                [(cols - len(str(right_str)) - 3), 0, 0] for right_str in right_side_str
             ]
 
-            rows_per_item = 1
+            rows_per_item = 3
             max_rows = rows - 2
             self.main_win_start = 0
             self.main_win_end = min(
@@ -691,11 +728,9 @@ class CourseSubMenu(Menu):
                 [
                     (
                         ord("j"),
-                        lambda: self.set_position(
-                            min(self.position + 1, len(self.assignments) - 1)
-                        ),
+                        lambda: navigate(1),
                     ),
-                    (ord("k"), lambda: self.set_position(max(self.position - 1, 0))),
+                    (ord("k"), lambda: navigate(-1)),
                 ],
                 right_side_str,
                 right_offset,
