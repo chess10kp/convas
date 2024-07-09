@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+# pyright: reportUnknownVariableType=false
+
 from re import sub
 import curses
 import os
@@ -43,13 +45,13 @@ class Menu(object):
         self.window = stdscreen.subwin(0, 0)
         self.position = 0
 
-    def navigate(self, _):
+    def navigate(self, _) -> None:
         raise NotImplementedError
 
-    def display(self):
+    def display(self) -> None:
         raise NotImplementedError
 
-    def run(self):
+    def run(self) -> None:
         raise NotImplementedError
 
 
@@ -58,9 +60,9 @@ class CourseSubMenu(Menu):
         self,
         window: Any,
         course_id: int,
-        switch_to_statusbar_callback: Callable[Any, None],
-        gutter_callback: Callable[None, None],
-        keybind_help: Callable[list[tuple[str, str]], None],
+        switch_to_statusbar_callback: Callable[[Any], None],
+        gutter_callback: Callable[[None], None],
+        keybind_help: Callable[[list[tuple[str, str]]], None],
     ):
         self.window = window
         self.current_os = platform.system()
@@ -78,9 +80,9 @@ class CourseSubMenu(Menu):
             "Quizzes",
             "Files",
         ]
-        self.announcements = None
-        self.quizzes = None
-        self.files = None
+        self.announcements: list[dict[str, str]] | None = None
+        self.quizzes: list[dict[str, str]] | None = None
+        self.files: list[dict[str, str]] | None = None
         rows, cols = self.window.getmaxyx()
         self.side_window = self.window.subwin(rows, int(cols * 0.2), 0, 0)
         self.main_win = self.window.subwin(rows, int(cols * 0.8), 0, int(cols * 0.2))
@@ -959,7 +961,9 @@ class Convas(object):
         self.course_info = loads(open("data.json").read())
         self.course_names: list[str] = get_current_course_names(self.course_info)
         self.course_ids: list[str] = get_current_course_id(self.course_info)
-        self.height, self.width = stdscreen.getmaxyx()
+        height, width = stdscreen.getmaxyx()
+        self.height = height
+        self.width = width
         self.status_bar: StatusBar = None
 
         self.keybind_win = curses.newwin(self.height - 3, int(self.width * 0.3), 0, 0)
@@ -1016,7 +1020,7 @@ class Convas(object):
         pass
 
     def run(self) -> None:
-        curses.curs_set(0)
+        _ = curses.curs_set(0)
         self.status_bar = StatusBar(
             self.course_names,
             self.height,
@@ -1035,20 +1039,18 @@ class Convas(object):
         )
 
         splash = r"""
- ________  ________  ________   ___      ___ ________  ________
-|\   ____\|\   __  \|\   ___  \|\  \    /  /|\   __  \|\   ____\
-\ \  \___|\ \  \|\  \ \  \\ \  \ \  \  /  / | \  \|\  \ \  \___|_
- \ \  \    \ \  \\\  \ \  \\ \  \ \  \/  / / \ \   __  \ \_____  \
-  \ \  \____\ \  \\\  \ \  \\ \  \ \    / /   \ \  \ \  \|____|\  \
-   \ \_______\ \_______\ \__\\ \__\ \__/ /     \ \__\ \__\____\_\  \
-    \|_______|\|_______|\|__| \|__|\|__|/       \|__|\|__|\_________\
-                                                          |__________|
+        Convas - The CONsole client for canVAS
+
+        type    :help<Enter>    for keybind help
         """
 
         try:
             Logger.info(f"Convas initialized with {self.height}x{self.width}")
             y_position = (self.height - 3 * 6) // 2
-            x_position = int(max(len(line) for line in splash.splitlines())) // 2 - 5
+            x_position = (
+                self.width // 2
+                - int(max(len(line) for line in splash.split("\n"))) // 2
+            )
             for i, line in enumerate(splash.split("\n")):
                 self.screen.addstr(y_position + i, x_position, line)
             self.screen.refresh()
