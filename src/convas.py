@@ -63,6 +63,7 @@ class CourseSubMenu(Menu):
         keybind_help: Callable[list[tuple[str, str]], None],
     ):
         self.window = window
+        self.current_os = platform.system()
         self.window.scrollok(True)
         self.window.keypad(1)
         self.win_index = 2  # 2 = side_window, 3 = main_window
@@ -135,6 +136,8 @@ class CourseSubMenu(Menu):
         )
         self.window.clear()
         self.window.refresh()
+
+    # make this an override
 
     def display(self):
         """Print the side_window to the screen"""
@@ -272,10 +275,10 @@ class CourseSubMenu(Menu):
                 (cols - len(str(right_str)) - 3) for right_str in right_side_str
             ]
         elif entry == "files":
-            left_side_str = [file["display_name"] for file in self.files]
-            right_side_str = [file["updated_at"][:10] for file in self.files]
+            left_side_str = [[file["display_name"]] for file in self.files]
+            right_side_str = [[file["updated_at"][:10]] for file in self.files]
             right_offset = [
-                (cols - len(str(right_str)) - 3) for right_str in right_side_str
+                [(cols - len(str(right_str)) - 3)] for right_str in right_side_str
             ]
 
         if not left_side_str:
@@ -317,7 +320,6 @@ class CourseSubMenu(Menu):
         self.main_win.refresh()
 
     def toggle_side_main_win(self):
-        # TODO: optimize menu to rerender only the current menu
         if self.win_index == 2:
             self.win_index = 3
             self.position = 0
@@ -330,7 +332,7 @@ class CourseSubMenu(Menu):
             self.display_main_win(self.tab_index)
             self.run()
 
-    def open_url(self, current_os, url: str):
+    def open_url(self, current_os: str, url: str):
         if current_os == "Linux":
             subprocess.run("xdg_open %s" % (url))
         elif current_os == "Windows":
@@ -394,7 +396,6 @@ class CourseSubMenu(Menu):
             def rerender_main_win():
                 self.main_win.border()
                 for index in range(self.main_win_start, self.main_win_end):
-                    Logger.info(f"{left_side_str}")
                     left = left_side_str[index]
                     right = right_side_str[index] if has_right else None
                     offset = right_offset[index] if has_right else None
@@ -459,9 +460,6 @@ class CourseSubMenu(Menu):
                                 mode,
                             )
 
-                self.main_win.move(
-                    (self.position - self.main_win_start) * rows_per_item + 1, 1
-                )
                 self.main_win.refresh()
                 key = self.main_win.getch()
 
@@ -512,7 +510,7 @@ class CourseSubMenu(Menu):
                         self.main_win_end += n
                         self.main_rerender = 1
 
-            left_side_str = [assignment["name"] for assignment in self.assignments]
+            left_side_str = [[assignment["name"] for assignment in self.assignments]]
             main_win_loop(
                 left_side_str,
                 [
@@ -521,7 +519,10 @@ class CourseSubMenu(Menu):
                     (
                         ord("d"),
                         lambda: self.open_url(
-                            self.assignments[self.main_win_start + self.position]["url"]
+                            self.current_os,
+                            self.assignments[self.main_win_start + self.position][
+                                "url"
+                            ],
                         ),
                     ),
                 ],
@@ -569,8 +570,8 @@ class CourseSubMenu(Menu):
             right_offset = [ [(cols - len(str(right_str)) - 3), 0, 0] for right_str in right_side_str ] 
             rows_per_item = 3
             max_rows = rows - 2
-
             self.main_win_end = ( min((len(left_side_str[self.main_win_start :])), (max_rows - rows_per_item) // rows_per_item,) )
+
             # fmt: on
             main_win_loop(
                 left_side_str,
@@ -593,7 +594,8 @@ class CourseSubMenu(Menu):
                 right_offset,
             )
         elif entry == "home":
-            assignments = [assignment["name"] for assignment in self.assignments]
+            assignments = [[assignment["name"] for assignment in self.assignments]]
+            # TODO:
             main_win_loop(
                 assignments,
                 [
@@ -609,7 +611,16 @@ class CourseSubMenu(Menu):
                         ),
                         "down",
                     ),
-                    (ord("o"), lambda: self.open_url(), "open in browser"),
+                    (
+                        ord("o"),
+                        lambda: self.open_url(
+                            self.current_os,
+                            self.assignments[self.main_win_start + self.position][
+                                "url"
+                            ],
+                        ),
+                        "open in browser",
+                    ),
                 ],
             )
             # TODO: Add "o" to open in browser
@@ -617,6 +628,7 @@ class CourseSubMenu(Menu):
 
         elif entry == "discussions":
             pass
+
         elif entry == "grades":
             graded_assignments = [
                 assignment
@@ -624,11 +636,24 @@ class CourseSubMenu(Menu):
                 if ("submission" in assignment.keys())
                 and assignment["submission"]["submitted_at"] != 0
             ]
-            left_side_str = [assignment["name"] for assignment in graded_assignments]
+            left_side_str = [[assignment["name"]] for assignment in graded_assignments]
             right_side_str = [
-                f"{assignment['points_possible']}/ {assignment['submission']['score']}"
+                [
+                    f"{assignment['points_possible']}/ {assignment['submission']['score']}"
+                ]
                 for assignment in graded_assignments
             ]
+            right_offset = [
+                [(cols - len(str(right_str)) - 3)] for right_str in right_side_str
+            ]
+
+            rows_per_item = 1
+            max_rows = rows - 2
+            self.main_win_start = 0
+            self.main_win_end = min(
+                (len(left_side_str[self.main_win_start :])),
+                (max_rows - rows_per_item) // rows_per_item,
+            )
 
             main_win_loop(
                 left_side_str,
@@ -642,9 +667,7 @@ class CourseSubMenu(Menu):
                     (ord("k"), lambda: self.set_position(max(self.position - 1, 0))),
                 ],
                 right_side_str,
-                right_offset=[
-                    (cols - len(str(right_str)) - 3) for right_str in right_side_str
-                ],
+                right_offset,
             )
 
         elif entry == "quizzes":
@@ -669,44 +692,61 @@ class CourseSubMenu(Menu):
             )
 
         elif entry == "files":
-            files = [file for file in self.files]
-            self.main_win.clear()
-            while True:
-                for index, file in enumerate(files):
-                    left_side_str = " %s" % (file["display_name"])
-                    right_side_str = " %s" % (file["updated_at"][:10])
-                    _, cols = self.main_win.getmaxyx()
-                    mode = (
-                        curses.A_NORMAL
-                        if index != self.position + self.main_win_start
-                        else curses.A_REVERSE
-                    )
-                    self.main_win.addstr(
-                        index + 1, cols - len(right_side_str) - 3, right_side_str, mode
-                    )
-                    self.main_win.addstr(1 + index, 1, left_side_str, mode)
-                self.main_win.move(self.position + 1, 1)
-                self.main_win.refresh()
-                key = self.main_win.getch()
-                if key == curses.KEY_UP or key == ord("k"):
-                    self.position = max(self.position - 1, 0)
-                elif key == curses.KEY_DOWN or key == ord("j"):
-                    self.position = min(self.position + 1, len(files) - 1)
-                elif key == ord("d"):
-                    if not file["url"]:
-                        return
-                    # TODO: prompt for file name (maybe default to the same name? )
-                    download = download_file(
-                        file["id"], self.course_id, file["display_name"], headers={}
-                    )
-                    if not download:
-                        pass
-                    # TODO: return errro
-                elif key == ord("h"):
-                    break
 
-        elif entry == "syllabus":
-            pass
+            def navigate(n: int) -> bool:
+                if (
+                    self.position + n <= self.main_win_end - 1
+                    and self.position + n >= self.main_win_start
+                ):
+                    self.position += n
+                elif self.position + n + self.main_win_start > len(self.files) - 1:
+                    return
+                elif self.main_win_start > self.position + n:
+                    if self.main_win_start + n >= 0:
+                        self.main_win_start += n
+                        self.position += n
+                        self.main_win_end += n
+                        self.main_rerender = 1
+                elif self.position + n > self.main_win_start:
+                    if self.main_win_start + n + self.position < len(self.files):
+                        self.main_win_start += n
+                        self.position += n
+                        self.main_win_end += n
+                        self.main_rerender = 1
+
+            files = [file for file in self.files]
+            left_side_str = [[file["display_name"]] for file in files]
+            right_side_str = [[file["updated_at"][:10]] for file in files]
+            right_offset = [
+                [(cols - len(str(right_str)) - 3)] for right_str in right_side_str
+            ]
+
+            def download_file_at_cursor(url: str, file_id: str, name: str):
+                download = download_file(
+                    url, file_id, course_id=self.course_id, outfile=name, headers={}
+                )
+                if not download:
+                    # TODO: SEND A MESSAGE TO THE USER
+                    return None
+
+            main_win_loop(
+                left_side_str,
+                [
+                    (ord("j"), lambda: navigate(1), "down"),
+                    (ord("k"), lambda: navigate(-1), "up"),
+                    (
+                        ord("d"),
+                        lambda: download_file_at_cursor(
+                            files[self.position]["url"],
+                            files[self.position]["id"],
+                            files[self.position]["display_name"],
+                        ),
+                        "down",
+                    ),
+                ],
+                right_side_str,
+                right_offset,
+            )
 
         self.toggle_side_main_win()
 
@@ -732,7 +772,6 @@ class CourseSubMenu(Menu):
                 mode = curses.A_REVERSE if index == self.position else curses.A_NORMAL
                 msg = "%s" % (item)
                 self.side_window.addstr(1 + index, 1, msg, mode)
-            self.side_window.move(self.position + 1, 1)
             self.side_window.border()
             self.side_window.refresh()
 
@@ -830,18 +869,15 @@ class StatusBar(Menu):
     def focus(self) -> CourseSubMenu | Menu:
         self.set_keybind_help([("j", "next"), ("k", "prev"), (":", "cmd mode")])
         while True:
-            cursor, left_offset = 3, 3
+            left_offset = 3
             self.window.erase()
             self.window.border()
             for index, course in enumerate(self.courses):
                 mode = curses.A_REVERSE if index == self.position else curses.A_NORMAL
-                if self.position == index:
-                    cursor = left_offset + index
                 msg = "%d.%s" % (index, course[0])
                 self.window.addstr(1, left_offset + index, msg + " " * 2, mode)
                 left_offset += len(course[0]) + 2
             self.window.refresh()
-            self.window.move(1, cursor)
             key = self.window.getch()
             if key in [curses.KEY_ENTER, ord("\n")]:
                 submenu = self.update_callback(self.course_ids[self.position])
@@ -885,7 +921,6 @@ class TextInput:
         self.window.border()
         while True:
             self.window.addstr(1, 1, buffer)
-            self.window.move(1, cursor)
             self.window.refresh()
             key = self.window.getch()
             if chr(key).isalpha():
@@ -938,8 +973,6 @@ class Convas(object):
         self.current_win_keybinds = []
         self.keybind_win.border()
 
-        self.current_os = platform.system()
-
         panel.update_panels()
         curses.doupdate()
 
@@ -977,11 +1010,13 @@ class Convas(object):
         self.keybind_win.resize(rows, self.height - 3)
         self.keybind_win.border()
         self.keybind_win.refresh()
-        curses.curs_set(0)
         show_panel_hide_on_keypress(self.keybind_panel, self.keybind_win)
-        curses.curs_set(1)
+
+    def notify(self, opts: tuple[Any, Any] = (curses.A_BOLD, curses.A_NORMAL)):
+        pass
 
     def run(self) -> None:
+        curses.curs_set(0)
         self.status_bar = StatusBar(
             self.course_names,
             self.height,
