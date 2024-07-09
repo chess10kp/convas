@@ -165,12 +165,13 @@ class CourseSubMenu(Menu):
     def display_main_win(self, heading: int):
         entry = self.tabs[heading].lower()
         rows_per_item = 1
-        right_side_str, left_side_str, right_offset = None, None, None
+        right_side_str: list[str, str] | None = None
+        left_side_str: list[str, str] | None = None
+        right_offset: list[str, str] | None = None
         rows, cols = self.main_win.getmaxyx()
         if entry == "assignments":
             max_rows = rows - 2
             left_side_str = [assignment["name"] for assignment in self.assignments]
-            Logger.info(f"{ left_side_str }")
             self.main_win_end = min(
                 (len(left_side_str) - self.main_win_start),
                 (max_rows - rows_per_item) // rows_per_item,
@@ -338,16 +339,24 @@ class CourseSubMenu(Menu):
 
     def open_url(self, current_os: str, url: str):
         if current_os == "Linux":
-            subprocess.run("xdg_open %s" % (url))
+            cmd = ("xdg-open %s" % (url),)
         elif current_os == "Windows":
-            subprocess.run("start msedge %s" % (url))
+            cmd = ("start msedge %s" % (url),)
         elif current_os == "darwin":
-            subprocess.run("open %s" % (url))
+            cmd = ("open %s" % (url),)
         else:
             # I'm guessing you're probably using firefox on a BSD
             for path in ["/usr/bin", "/usr/local/bin"]:
                 if os.path.exists(os.path.join(path, "firefox")):
-                    subprocess.run("firefox %s" % (url))
+                    cmd = ("firefox %s" % (url),)
+                else:
+                    self.notify("No browser found")
+        subprocess.run(
+            cmd,
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     def main_win_panel_render(self, content: str | list[str]):
         """Display a panel over the main window with custom content"""
@@ -416,11 +425,14 @@ class CourseSubMenu(Menu):
                                 1,
                                 left[i],
                             )
-                            self.main_win.addstr(
-                                1 + rows_per_item * (index - self.main_win_start) + i,
-                                (offset[i] if offset is not None else 1),
-                                right[i] if right else "",
-                            )
+                            if has_right:
+                                self.main_win.addstr(
+                                    1
+                                    + rows_per_item * (index - self.main_win_start)
+                                    + i,
+                                    (offset[i] if offset is not None else 1),
+                                    right[i] if right else "",
+                                )
                 return 0  # return 0 to stop rerendering all entries again
 
             while True:
@@ -456,12 +468,15 @@ class CourseSubMenu(Menu):
                                 left[i],
                                 mode,
                             )
-                            self.main_win.addstr(
-                                1 + rows_per_item * (index - self.main_win_start) + i,
-                                (offset[i] if offset is not None else 1),
-                                right[i],
-                                mode,
-                            )
+                            if has_right:
+                                self.main_win.addstr(
+                                    1
+                                    + rows_per_item * (index - self.main_win_start)
+                                    + i,
+                                    (offset[i] if offset is not None else 1),
+                                    right[i],
+                                    mode,
+                                )
 
                 self.main_win.refresh()
                 key = self.main_win.getch()
@@ -490,6 +505,7 @@ class CourseSubMenu(Menu):
         entry = self.tabs[self.tab_index].lower()
         rows_per_item = 1
         rows, cols = self.main_win.getmaxyx()
+
         if entry == "assignments":
 
             def navigate(n: int):
@@ -513,7 +529,13 @@ class CourseSubMenu(Menu):
                         self.main_win_end += n
                         self.main_rerender = 1
 
-            left_side_str = [[assignment["name"] for assignment in self.assignments]]
+            left_side_str = [[assignment["name"]] for assignment in self.assignments]
+            rows_per_item = 1
+            max_rows = rows - 2
+            self.main_win_end = min(
+                (len(left_side_str[self.main_win_start :])),
+                (max_rows - rows_per_item) // rows_per_item,
+            )
             main_win_loop(
                 left_side_str,
                 [
@@ -524,7 +546,7 @@ class CourseSubMenu(Menu):
                         lambda: self.open_url(
                             self.current_os,
                             self.assignments[self.main_win_start + self.position][
-                                "url"
+                                "html_url"
                             ],
                         ),
                     ),
@@ -597,10 +619,16 @@ class CourseSubMenu(Menu):
                 right_offset,
             )
         elif entry == "home":
-            assignments = [[assignment["name"] for assignment in self.assignments]]
+            left_side_str = [[assignment["name"] for assignment in self.assignments]]
+            rows_per_item = 1
+            max_rows = rows - 2
+            self.main_win_end = min(
+                (len(left_side_str[self.main_win_start :])),
+                (max_rows - rows_per_item) // rows_per_item,
+            )
             # TODO:
             main_win_loop(
-                assignments,
+                left_side_str,
                 [
                     (
                         ord("k"),
@@ -820,15 +848,6 @@ class CourseSubMenu(Menu):
         self.side_window.refresh()
         curses.doupdate()
 
-    #
-    # def create_scrollable_container(stdscreen, height, width, y, x, contents):
-    #     container = stdscreen.subwin(height, width, y, x)
-    #     container.scrollok(True)  # Enable scrolling
-    #     container.box()  # Draw a box around the container
-    #     for i, line in enumerate(contents):
-    #         container.addstr(i + 1, 1, line)  # Add content to the container
-    #     return container
-
 
 class StatusBar(Menu):
     def __init__(
@@ -936,6 +955,7 @@ class TextInput:
         self.validate = eval_cmd
 
     def run(self) -> None:
+        curses.curs_set(1)
         buffer = ""
         cursor = 1
         self.window.erase()
@@ -965,9 +985,11 @@ class TextInput:
                 self.window.clear()
                 self.window.border()
             elif key == 27:  # Esc
+                curses.curs_set(0)
                 return ""
             elif key == ord("\n"):
                 if self.validate(buffer):
+                    curses.curs_set(0)
                     return buffer
             else:
                 self.window.addstr(str(key))
@@ -1079,7 +1101,7 @@ class Convas(object):
         return True
 
     def run(self) -> None:
-        _ = curses.curs_set(0)
+        curses.curs_set(0)
         self.status_bar = StatusBar(
             self.course_names,
             self.height,
