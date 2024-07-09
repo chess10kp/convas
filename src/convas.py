@@ -161,7 +161,14 @@ class CourseSubMenu(Menu):
         right_side_str, left_side_str, right_offset = None, None, None
         rows, cols = self.main_win.getmaxyx()
         if entry == "assignments":
+            max_rows = rows - 2
             left_side_str = [assignment["name"] for assignment in self.assignments]
+            Logger.info(f"{ left_side_str }")
+            self.main_win_end = min(
+                (len(left_side_str) - self.main_win_start),
+                (max_rows - rows_per_item) // rows_per_item,
+            )
+            Logger.info(f"{self.main_win_end} {len(left_side_str)}")
 
         elif entry == "home":
             graded_assignments = [
@@ -237,9 +244,11 @@ class CourseSubMenu(Menu):
                 [(cols - len(str(right_str)) - 3), 0, 0] for right_str in right_side_str
             ]
             rows_per_item = 3
+
         elif entry == "discussions":
             discussions = get_discussions(self.assignments)
             left_side_str = [assignment["name"] for assignment in discussions]
+
         elif entry == "grades":
             left_side_str = [
                 assignment["name"]
@@ -279,7 +288,6 @@ class CourseSubMenu(Menu):
             (len(left_side_str) - self.main_win_start),
             (max_rows - rows_per_item) // rows_per_item,
         )
-        Logger.info(f"value of end: {self.main_win_end} ")
 
         for index, item in enumerate(
             left_side_str[self.main_win_start : self.main_win_end]
@@ -340,11 +348,17 @@ class CourseSubMenu(Menu):
         self.main_win_panel.hide()
         self.main_win_popup.erase()
         self.main_win_popup.border()
+        h, w = self.main_win_popup.getmaxyx()
         if isinstance(content, list):
             for row in content:
-                self.main_win_popup.addstr(row)
+                lines = (len(row) + w + 2 - 1) // w
+                s = 0
+                e = w - 2
+                for line in range(lines):
+                    self.main_win_popup.addstr(line + 1, 1, row[s:e])
+                    s = e
+                    e += w - 2
         elif isinstance(content, str):
-            h, w = self.main_win_popup.getmaxyx()
             lines = (len(content) + w + 2 - 1) // w
             s = 0
             e = w - 2
@@ -368,7 +382,7 @@ class CourseSubMenu(Menu):
         )
 
         def main_win_loop(
-            left_side_str: list[str],
+            left_side_str: list[str] | list[list[str]],
             bindings: list[tuple[int, Callable[None, Any] | Callable[str, Any], str]],
             right_side_str: list[str] | None = None,
             right_offset: int | None = None,
@@ -380,9 +394,7 @@ class CourseSubMenu(Menu):
             def rerender_main_win():
                 self.main_win.border()
                 for index in range(self.main_win_start, self.main_win_end):
-                    Logger.info(
-                        f"renderer call: index: {index} start: {self.main_win_start} end: {self.main_win_end} len: {len(self.announcements)}"
-                    )
+                    Logger.info(f"{left_side_str}")
                     left = left_side_str[index]
                     right = right_side_str[index] if has_right else None
                     offset = right_offset[index] if has_right else None
@@ -403,13 +415,12 @@ class CourseSubMenu(Menu):
                             self.main_win.addstr(
                                 1 + rows_per_item * (index - self.main_win_start) + i,
                                 (offset[i] if offset is not None else 1),
-                                right[i],
+                                right[i] if right else "",
                             )
                 return 0  # return 0 to stop rerendering all entries again
 
             while True:
                 if self.main_rerender:
-                    Logger.info("Rerender has been triggered")
                     self.main_win.erase()
                     self.main_rerender = rerender_main_win()
                 for index in range(self.main_win_start, self.main_win_end):
@@ -479,30 +490,46 @@ class CourseSubMenu(Menu):
         rows_per_item = 1
         rows, cols = self.main_win.getmaxyx()
         if entry == "assignments":
-            assignments = [assignment["name"] for assignment in self.assignments]
-            while True:
-                for index, assignment in enumerate(assignments):
-                    mode = (
-                        curses.A_NORMAL if index != self.position else curses.A_REVERSE
-                    )
-                    self.main_win.addstr(1 + index, 1, assignment, mode)
-                self.main_win.refresh()
-                key = self.window.getch()
-                if key == curses.KEY_UP or key == ord("k"):
-                    self.navigate(-1)
-                elif key == curses.KEY_DOWN or key == ord("j"):
-                    self.navigate(1)
-                elif key == ord("h"):
-                    break
-                elif key == ord(":"):
-                    self.gutter_mode()
+
+            def navigate(n: int):
+                if (
+                    self.position + n <= self.main_win_end - 1
+                    and self.position + n >= self.main_win_start
+                ):
+                    self.position += n
+                elif self.position + n > len(self.assignments):
+                    return
+                elif self.main_win_start > self.position + n:
+                    if self.main_win_start + n >= 0:
+                        self.main_win_start += n
+                        self.position += n
+                        self.main_win_end += n
+                        self.main_rerender = 1
+                elif self.position + n > self.main_win_start:
+                    if self.main_win_start + n + self.position < len(self.assignments):
+                        self.main_win_start += n
+                        self.position += n
+                        self.main_win_end += n
+                        self.main_rerender = 1
+
+            left_side_str = [assignment["name"] for assignment in self.assignments]
+            main_win_loop(
+                left_side_str,
+                [
+                    (ord("j"), lambda: navigate(1)),
+                    (ord("k"), lambda: navigate(-1)),
+                    (
+                        ord("d"),
+                        lambda: self.open_url(
+                            self.assignments[self.main_win_start + self.position]["url"]
+                        ),
+                    ),
+                ],
+            )
 
         elif entry == "announcements":
 
             def navigate(n: int) -> bool:
-                Logger.info(
-                    f"{ self.position } {len(self.announcements)} {self.main_win_start} {self.main_win_end} {n}"
-                )
                 if (
                     self.position + n <= self.main_win_end - 1
                     and self.position + n >= self.main_win_start
@@ -534,7 +561,7 @@ class CourseSubMenu(Menu):
                     for anouncement in self.announcements
                     if anouncement["id"] == id
                 ]
-                self.main_win_panel_render(message[0])
+                self.main_win_panel_render(message)
 
             # fmt: off
             left_side_str = [ [announcement["user_name"], announcement["title"], ""] for announcement in self.announcements ]
@@ -542,6 +569,7 @@ class CourseSubMenu(Menu):
             right_offset = [ [(cols - len(str(right_str)) - 3), 0, 0] for right_str in right_side_str ] 
             rows_per_item = 3
             max_rows = rows - 2
+
             self.main_win_end = ( min((len(left_side_str[self.main_win_start :])), (max_rows - rows_per_item) // rows_per_item,) )
             # fmt: on
             main_win_loop(
@@ -932,7 +960,6 @@ class Convas(object):
 
     def display_binds(self, opts: tuple[Any, Any] = (curses.A_NORMAL, curses.A_NORMAL)):
         """Display keybinds with self.keybind_panel"""
-        Logger.info("Displaying keybinds")
         self.keybind_win.clear()
         rows = 1 + 2  # 2 for borders
         self.keybind_win.addstr(1, 1, "Keybinds")
