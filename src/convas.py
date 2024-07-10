@@ -17,11 +17,18 @@ from convas_requests import (
     get_current_course_names,
     get_discussions,
 )
-from helper import Logger, show_panel_hide_on_keypress, clean_up_html
+from helper import (
+    Logger,
+    show_panel_hide_on_keypress,
+    show_panel,
+    hide_panel,
+    clean_up_html,
+)
 
 HOME = os.path.expanduser("~")
 CONFIG_FILE = "%s/.config/convas/config" % HOME
 BORDER = 1
+DEV = 1
 
 config = None
 with open(CONFIG_FILE) as file:
@@ -66,7 +73,6 @@ class CourseSubMenu(Menu):
     ):
         self.window = window
         self.course_info = course_info
-        Logger.info(course_info)
         rows, cols = self.window.getmaxyx()
         self.current_os = platform.system()
         self.window.scrollok(True)
@@ -151,21 +157,21 @@ class CourseSubMenu(Menu):
         rows, cols = self.dashboard_win.getmaxyx()
         srows, scols = self.dashboard_win.getbegyx()
 
-        self.dashboard_heading = self.dashboard_win.subwin(1, cols, srows, scols)
+        self.dashboard_heading = self.dashboard_win.subwin(1, cols, srows + 1, scols)
         self.dashboard_course_info = self.dashboard_win.subwin(
-            int(rows * 0.4) - 1, int(cols * 0.3), srows + 1, scols
+            int(rows * 0.4) - 2, int(cols * 0.3), srows + 2, scols
         )
         self.dashboard_announcement = self.dashboard_win.subwin(
-            int(rows * 0.6), int(cols * 0.3), srows + int(rows * 0.4), scols
+            int(rows * 0.6) + 1, int(cols * 0.3), srows + int(rows * 0.4), scols
         )
         self.upcoming_assignments = self.dashboard_win.subwin(
-            int(rows * 0.6),
+            int(rows * 0.6) + 1,
             int(cols * 0.35),
             srows + int(rows * 0.4),
             scols + int(cols * 0.3),
         )
         self.completed_assignments = self.dashboard_win.subwin(
-            int(rows * 0.6),
+            int(rows * 0.6) + 1,
             int(cols * 0.35),
             srows + int(rows * 0.4),
             scols + int(cols * 0.65),
@@ -174,7 +180,7 @@ class CourseSubMenu(Menu):
         syllabus = self.course_info["syllabus_body"]
         if syllabus:
             self.dashboard_syllabus = self.dashboard_win.subwin(
-                int(rows * 0.4) - 1, int(cols * 0.7), srows + 1, scols + int(cols * 0.3)
+                int(rows * 0.4) - 2, int(cols * 0.7), srows + 1, scols + int(cols * 0.3)
             )
             self.dashboard_syllabus.border()
             self.wrap_content_around_win(
@@ -182,7 +188,7 @@ class CourseSubMenu(Menu):
             )
             self.dashboard_syllabus.refresh()
         else:  # if no syllabus, expand course_info
-            self.dashboard_course_info.resize(int(rows * 0.4) - 1, cols)
+            self.dashboard_course_info.resize(int(rows * 0.4) - 2, cols)
             self.dashboard_course_info.border()
 
         if self.announcements and len(self.announcements):
@@ -232,7 +238,6 @@ class CourseSubMenu(Menu):
         )
 
         course_full_name = self.course_info["name"]
-
         self.dashboard_heading.addstr(0, 1, f"{ course_full_name }")
 
         teacher = self.course_info["teachers"][0]["display_name"]
@@ -257,11 +262,11 @@ class CourseSubMenu(Menu):
         self.dashboard_course_info.border()
         self.upcoming_assignments.border()
 
-        self.dashboard_heading.refresh()
-        self.dashboard_announcement.refresh()
-        self.completed_assignments.refresh()
+        self.dashboard_heading.noutrefresh()
+        self.dashboard_announcement.noutrefresh()
+        self.completed_assignments.noutrefresh()
+        self.upcoming_assignments.noutrefresh()
         self.dashboard_win.refresh()
-        self.upcoming_assignments.refresh()
 
     def display(self):
         """Print the side_window to the screen"""
@@ -284,6 +289,7 @@ class CourseSubMenu(Menu):
             self.position = len(self.tabs) - 1
 
     def display_main_win(self, heading: int):
+        Logger.info("displaying main window")
         entry = self.tabs[heading].lower()
         rows_per_item = 1
         right_side_str: list[str, str] | None = None
@@ -299,12 +305,11 @@ class CourseSubMenu(Menu):
             )
 
         elif entry == "home":
-            Logger.info("Home tab selected")
-            self.main_win.clear()
-            self.main_win.refresh()
-            show_panel_hide_on_keypress(self.dashboard_panel, self.dashboard_win)
+            # TODO: change initalize_dashboard to just be show_hide
+            hide_panel(self.main_win_panel, self.main_win)
+            self.initialize_dashboard()
+            show_panel(self.main_win_panel)
             return
-            # TODO: figure out how to get current grade
             # { "braille_up", {
             # 	" ", "⢀", "⢠", "⢰", "⢸",
             # 	"⡀", "⣀", "⣠", "⣰", "⣸",
@@ -319,34 +324,6 @@ class CourseSubMenu(Menu):
             # 	"⠇", "⠏", "⠟", "⠿", "⢿",
             # 	"⡇", "⡏", "⡟", "⡿", "⣿"
             # }},
-            # {"block_up", {
-            # 	" ", "▗", "▗", "▐", "▐",
-            # 	"▖", "▄", "▄", "▟", "▟",
-            # 	"▖", "▄", "▄", "▟", "▟",
-            # 	"▌", "▙", "▙", "█", "█",
-            # 	"▌", "▙", "▙", "█", "█"
-            # }},
-            # {"block_down", {
-            # 	" ", "▝", "▝", "▐", "▐",
-            # 	"▘", "▀", "▀", "▜", "▜",
-            # 	"▘", "▀", "▀", "▜", "▜",
-            # 	"▌", "▛", "▛", "█", "█",
-            # 	"▌", "▛", "▛", "█", "█"
-            # }},
-            # {"tty_up", {
-            # 	" ", "░", "░", "▒", "▒",
-            # 	"░", "░", "▒", "▒", "█",
-            # 	"░", "▒", "▒", "▒", "█",
-            # 	"▒", "▒", "▒", "█", "█",
-            # 	"▒", "█", "█", "█", "█"
-            # }},
-            # {"tty_down", {
-            # 	" ", "░", "░", "▒", "▒",
-            # 	"░", "░", "▒", "▒", "█",
-            # 	"░", "▒", "▒", "▒", "█",
-            # 	"▒", "▒", "▒", "█", "█",
-            # 	"▒", "█", "█", "█", "█"
-            # }}
 
         elif entry == "announcements":
             left_side_str = [
@@ -497,7 +474,7 @@ class CourseSubMenu(Menu):
                 win.addstr(linenm, 1, content[start:end])
                 start = end
                 end += w - 2
-        win.refresh()
+        win.noutrefresh()
 
     def main_win_panel_render(self, content: str | list[str]):
         """Display a panel over the main window with custom content"""
@@ -1049,7 +1026,7 @@ class StatusBar(Menu):
             self.window.addstr(1, status_offset + index, msg, curses.A_NORMAL)
             self.window.addstr(1, status_offset + index + 3, "")
             status_offset += len(course[0])
-        self.window.refresh()
+        self.window.noutrefresh()
 
     def run(self) -> CourseSubMenu | Menu:
         self.window.scrollok(True)
@@ -1170,6 +1147,9 @@ class Convas(object):
         panel.update_panels()
         curses.doupdate()
 
+    def make_api_calls_and_write_to_file():
+        pass
+
     @staticmethod
     def switch_win_callback(switch_to_statusbar: bool, statusbar: StatusBar, win: Any):
         if switch_to_statusbar:
@@ -1221,7 +1201,6 @@ class Convas(object):
         msg_words = msg.split(" ")
 
         for word in heading_words:
-            Logger.info(word)
             if cur + len(word) + 1 < w:
                 self.notify_win.addstr(row, cur, word + " ")
                 cur += len(word) + 1
