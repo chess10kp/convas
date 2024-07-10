@@ -58,12 +58,15 @@ class CourseSubMenu(Menu):
         self,
         window: Any,
         course_id: int,
+        course_info: dict[str, str],
         switch_to_statusbar_callback: Callable[[Any], None],
         gutter_callback: Callable[[None], None],
         keybind_help: Callable[[list[tuple[str, str]]], None],
         notify: Callable[[str, str], bool],
     ):
         self.window = window
+        self.course_info = course_info
+        Logger.info(course_info)
         rows, cols = self.window.getmaxyx()
         self.current_os = platform.system()
         self.window.scrollok(True)
@@ -148,17 +151,12 @@ class CourseSubMenu(Menu):
         rows, cols = self.dashboard_win.getmaxyx()
         srows, scols = self.dashboard_win.getbegyx()
 
-        self.dashboard_course_info = self.main_win.subwin(
-            int(rows * 0.4),
-            cols,
-            srows,
-            scols,
+        self.dashboard_heading = self.dashboard_win.subwin(1, cols, srows, scols)
+        self.dashboard_course_info = self.dashboard_win.subwin(
+            int(rows * 0.4) - 1, int(cols * 0.3), srows + 1, scols
         )
         self.dashboard_announcement = self.dashboard_win.subwin(
-            int(rows * 0.3),
-            int(cols * 0.3),
-            srows + int(rows * 0.4),
-            scols,
+            int(rows * 0.6), int(cols * 0.3), srows + int(rows * 0.4), scols
         )
         self.upcoming_assignments = self.dashboard_win.subwin(
             int(rows * 0.6),
@@ -173,29 +171,97 @@ class CourseSubMenu(Menu):
             scols + int(cols * 0.65),
         )
 
-        self.dashboard_announcement.border()
-        self.completed_assignments.border()
-        self.dashboard_course_info.border()
-        self.upcoming_assignments.border()
-        self.dashboard_win.border()
+        syllabus = self.course_info["syllabus_body"]
+        if syllabus:
+            self.dashboard_syllabus = self.dashboard_win.subwin(
+                int(rows * 0.4) - 1, int(cols * 0.7), srows + 1, scols + int(cols * 0.3)
+            )
+            self.dashboard_syllabus.border()
+            self.wrap_content_around_win(
+                clean_up_html(syllabus), self.dashboard_syllabus
+            )
+            self.dashboard_syllabus.refresh()
+        else:  # if no syllabus, expand course_info
+            self.dashboard_course_info.resize(int(rows * 0.4) - 1, cols)
+            self.dashboard_course_info.border()
 
         if self.announcements and len(self.announcements):
             latest_announcement = self.announcements[-1]
             msg = clean_up_html(latest_announcement["message"])
             title = latest_announcement["title"]
+            date = latest_announcement["created_at"][:10]
         else:
-            title = "No announcements: "
+            title = ""
             msg = ""
+            date = ""
         self.wrap_content_around_win(
-            ["Latest Announcement: ", title, msg], self.dashboard_announcement
+            [
+                "Latest Announcement: ",
+                (f"Title: { title }") if title != "" else "No announcements",
+                (f"Date: {date}") if len(date) else "",
+                msg,
+            ],
+            self.dashboard_announcement,
         )
 
+        upcoming_assignments = [""]
+        completed_assignments = [""]
+        if self.assignments and len(self.assignments):
+            upcoming_assignments = [
+                assignment["name"]
+                for assignment in self.assignments
+                if "submission" not in assignment.keys()
+            ]
+            completed_assignments = [
+                assignment["name"]
+                for assignment in self.assignments
+                if ("submission" in assignment.keys())
+                and assignment["submission"]["submitted_at"] != 0
+            ]
+        self.wrap_content_around_win(
+            ["Completed assignments", " "] + upcoming_assignments
+            if len(upcoming_assignments)
+            else "No upcoming assignments",
+            self.upcoming_assignments,
+        )
+        self.wrap_content_around_win(
+            ["Completed assignments", " "] + completed_assignments
+            if len(completed_assignments)
+            else "No upcoming assignments",
+            self.completed_assignments,
+        )
+
+        course_full_name = self.course_info["name"]
+
+        self.dashboard_heading.addstr(0, 1, f"{ course_full_name }")
+
+        teacher = self.course_info["teachers"][0]["display_name"]
+        started_at = self.course_info["term"]["start_at"][:10]
+        score = str(
+            list(
+                filter(
+                    lambda enrollment: enrollment["type"] == "student",
+                    self.course_info["enrollments"],
+                )
+            )[0]["computed_current_score"]
+        )
+        course_info_content = [
+            f"Started at: { started_at }",
+            f"Instructor: { teacher }",
+            f"Score: { score }",
+        ]
+        self.wrap_content_around_win(course_info_content, self.dashboard_course_info)
+
+        self.dashboard_announcement.border()
+        self.completed_assignments.border()
+        self.dashboard_course_info.border()
+        self.upcoming_assignments.border()
+
+        self.dashboard_heading.refresh()
         self.dashboard_announcement.refresh()
         self.completed_assignments.refresh()
         self.dashboard_win.refresh()
         self.upcoming_assignments.refresh()
-
-        show_panel_hide_on_keypress(self.dashboard_panel, self.dashboard_win)
 
     def display(self):
         """Print the side_window to the screen"""
@@ -233,21 +299,11 @@ class CourseSubMenu(Menu):
             )
 
         elif entry == "home":
-            graded_assignments = [
-                assignment
-                for assignment in self.assignments
-                if ("submission" in assignment.keys())
-                and assignment["submission"]["submitted_at"] != 0
-            ]
-
-            right_side_str = [
-                f"{assignment['points_possible']}/ {assignment['submission']['score']}"
-                for assignment in self.assignments
-                if ("submission" in assignment.keys())
-                and assignment["submission"]["submitted_at"] != 0
-            ]
-            current_grade = []
-
+            Logger.info("Home tab selected")
+            self.main_win.clear()
+            self.main_win.refresh()
+            show_panel_hide_on_keypress(self.dashboard_panel, self.dashboard_win)
+            return
             # TODO: figure out how to get current grade
             # { "braille_up", {
             # 	" ", "⢀", "⢠", "⢰", "⢸",
@@ -291,10 +347,6 @@ class CourseSubMenu(Menu):
             # 	"▒", "▒", "▒", "█", "█",
             # 	"▒", "█", "█", "█", "█"
             # }}
-
-            latest_annoucnement = self.announcements[-1]
-
-            left_side_str = [assignment["name"] for assignment in self.assignments]
 
         elif entry == "announcements":
             left_side_str = [
@@ -429,7 +481,7 @@ class CourseSubMenu(Menu):
                 start = 0
                 end = w - 2
                 for line in range(lines):
-                    if linenm == h:
+                    if linenm + line == h:
                         return
                     win.addstr(linenm, 1, row[start:end])
                     linenm += 1
@@ -1207,6 +1259,7 @@ class Convas(object):
             lambda course_id: CourseSubMenu(
                 self.content_win,
                 course_id,
+                [course for course in self.course_info if course["id"] == course_id][0],
                 lambda win: self.switch_win_callback(True, self.status_bar, win),
                 self.status_bar.gutter_mode,
                 self.set_keybind_help,

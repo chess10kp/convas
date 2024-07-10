@@ -9,7 +9,7 @@ Logger = logging.getLogger("samplelogger")
 Logger.info("Logging Has started")
 
 
-def show_panel(a_panel: window):
+def show_panel(a_panel: panel):
     a_panel.top()
     a_panel.show()
     panel.update_panels()
@@ -25,7 +25,7 @@ def hide_panel(a_panel, win: window):
 def show_panel_hide_on_keypress(a_panel, win: window):
     a_panel.top()
     a_panel.show()
-    _ = panel.update_panels()
+    panel.update_panels()
     if win.getch() != -1:
         hide_panel(a_panel, win)
 
