@@ -1,6 +1,8 @@
 import logging
 from curses import panel
 from curses import window
+from re import sub
+from html import unescape
 
 logging.basicConfig(level=logging.INFO, filename="log")
 Logger = logging.getLogger("samplelogger")
@@ -26,3 +28,7 @@ def show_panel_hide_on_keypress(a_panel, win: window):
     _ = panel.update_panels()
     if win.getch() != -1:
         hide_panel(a_panel, win)
+
+
+def clean_up_html(content: str):
+    return sub("<[^<]+?>", "", unescape(content))

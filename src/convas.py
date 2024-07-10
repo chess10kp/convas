@@ -2,7 +2,6 @@
 
 # pyright: reportUnknownVariableType=false
 
-from re import sub
 import curses
 import os
 import platform
@@ -11,7 +10,6 @@ from curses import panel
 from inspect import getfullargspec
 from json import loads
 from typing import Any, Callable
-from html import unescape
 from config import Config
 from convas_requests import (
     download_file,
@@ -19,7 +17,7 @@ from convas_requests import (
     get_current_course_names,
     get_discussions,
 )
-from helper import Logger, show_panel_hide_on_keypress
+from helper import Logger, show_panel_hide_on_keypress, clean_up_html
 
 HOME = os.path.expanduser("~")
 CONFIG_FILE = "%s/.config/convas/config" % HOME
@@ -66,6 +64,7 @@ class CourseSubMenu(Menu):
         notify: Callable[[str, str], bool],
     ):
         self.window = window
+        rows, cols = self.window.getmaxyx()
         self.current_os = platform.system()
         self.window.scrollok(True)
         self.window.keypad(1)
@@ -85,7 +84,6 @@ class CourseSubMenu(Menu):
         self.announcements: list[dict[str, str]] | None = None
         self.quizzes: list[dict[str, str]] | None = None
         self.files: list[dict[str, str]] | None = None
-        rows, cols = self.window.getmaxyx()
         self.side_window = self.window.subwin(rows, int(cols * 0.2), 0, 0)
         self.main_win = self.window.subwin(rows, int(cols * 0.8), 0, int(cols * 0.2))
         self.main_win.scrollok(True)
@@ -125,6 +123,11 @@ class CourseSubMenu(Menu):
         if not isinstance(self.announcements, list):
             self.tabs.remove("Announcements")
 
+        self.dashboard_win = self.window.subwin(
+            rows, int(cols * 0.8), 0, int(cols * 0.2)
+        )
+        self.dashboard_panel = panel.new_panel(self.dashboard_win)
+
         def display_assignment_info(self):
             return None
 
@@ -141,7 +144,58 @@ class CourseSubMenu(Menu):
         self.window.clear()
         self.window.refresh()
 
-    # make this an override
+    def initialize_dashboard(self):
+        rows, cols = self.dashboard_win.getmaxyx()
+        srows, scols = self.dashboard_win.getbegyx()
+
+        self.dashboard_course_info = self.main_win.subwin(
+            int(rows * 0.4),
+            cols,
+            srows,
+            scols,
+        )
+        self.dashboard_announcement = self.dashboard_win.subwin(
+            int(rows * 0.3),
+            int(cols * 0.3),
+            srows + int(rows * 0.4),
+            scols,
+        )
+        self.upcoming_assignments = self.dashboard_win.subwin(
+            int(rows * 0.6),
+            int(cols * 0.35),
+            srows + int(rows * 0.4),
+            scols + int(cols * 0.3),
+        )
+        self.completed_assignments = self.dashboard_win.subwin(
+            int(rows * 0.6),
+            int(cols * 0.35),
+            srows + int(rows * 0.4),
+            scols + int(cols * 0.65),
+        )
+
+        self.dashboard_announcement.border()
+        self.completed_assignments.border()
+        self.dashboard_course_info.border()
+        self.upcoming_assignments.border()
+        self.dashboard_win.border()
+
+        if self.announcements and len(self.announcements):
+            latest_announcement = self.announcements[-1]
+            msg = clean_up_html(latest_announcement["message"])
+            title = latest_announcement["title"]
+        else:
+            title = "No announcements: "
+            msg = ""
+        self.wrap_content_around_win(
+            ["Latest Announcement: ", title, msg], self.dashboard_announcement
+        )
+
+        self.dashboard_announcement.refresh()
+        self.completed_assignments.refresh()
+        self.dashboard_win.refresh()
+        self.upcoming_assignments.refresh()
+
+        show_panel_hide_on_keypress(self.dashboard_panel, self.dashboard_win)
 
     def display(self):
         """Print the side_window to the screen"""
@@ -151,6 +205,7 @@ class CourseSubMenu(Menu):
             msg = "%s" % (item)
             self.side_window.addstr(1 + index, 1, msg, curses.A_NORMAL)
         self.side_window.refresh()
+        self.initialize_dashboard()
 
     def set_position(self, pos: int):
         self.position = pos
@@ -176,7 +231,6 @@ class CourseSubMenu(Menu):
                 (len(left_side_str) - self.main_win_start),
                 (max_rows - rows_per_item) // rows_per_item,
             )
-            Logger.info(f"{self.main_win_end} {len(left_side_str)}")
 
         elif entry == "home":
             graded_assignments = [
@@ -185,6 +239,7 @@ class CourseSubMenu(Menu):
                 if ("submission" in assignment.keys())
                 and assignment["submission"]["submitted_at"] != 0
             ]
+
             right_side_str = [
                 f"{assignment['points_possible']}/ {assignment['submission']['score']}"
                 for assignment in self.assignments
@@ -236,6 +291,8 @@ class CourseSubMenu(Menu):
             # 	"▒", "▒", "▒", "█", "█",
             # 	"▒", "█", "█", "█", "█"
             # }}
+
+            latest_annoucnement = self.announcements[-1]
 
             left_side_str = [assignment["name"] for assignment in self.assignments]
 
@@ -362,6 +419,33 @@ class CourseSubMenu(Menu):
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+
+    def wrap_content_around_win(self, content: str | list[str], win: Any):
+        h, w = win.getmaxyx()
+        linenm = 1
+        if isinstance(content, list):
+            for row in content:
+                lines = (len(row) + w + 2 - 1) // w
+                start = 0
+                end = w - 2
+                for line in range(lines):
+                    if linenm == h:
+                        return
+                    win.addstr(linenm, 1, row[start:end])
+                    linenm += 1
+                    start = end
+                    end += w - 2
+        elif isinstance(content, str):
+            lines = (len(content) + w + 2 - 1) // w
+            start = 0
+            end = w - 2
+            for line in range(lines):
+                if linenm == h:
+                    return
+                win.addstr(linenm, 1, content[start:end])
+                start = end
+                end += w - 2
+        win.refresh()
 
     def main_win_panel_render(self, content: str | list[str]):
         """Display a panel over the main window with custom content"""
@@ -547,7 +631,7 @@ class CourseSubMenu(Menu):
                     (ord("j"), lambda: navigate(1)),
                     (ord("k"), lambda: navigate(-1)),
                     (
-                        ord("d"),
+                        ord("o"),
                         lambda: self.open_url(
                             self.current_os,
                             self.assignments[self.main_win_start + self.position][
@@ -588,7 +672,7 @@ class CourseSubMenu(Menu):
 
             def show_annoucement(id: int):
                 message = [
-                    sub("<[^<]+?>", "", unescape(anouncement["message"]))
+                    clean_up_html(anouncement["message"])
                     for anouncement in self.announcements
                     if anouncement["id"] == id
                 ]
@@ -623,44 +707,6 @@ class CourseSubMenu(Menu):
                 right_side_str,
                 right_offset,
             )
-        elif entry == "home":
-            left_side_str = [[assignment["name"] for assignment in self.assignments]]
-            rows_per_item = 1
-            max_rows = rows - 2
-            self.main_win_end = min(
-                (len(left_side_str[self.main_win_start :])),
-                (max_rows - rows_per_item) // rows_per_item,
-            )
-            # TODO:
-            main_win_loop(
-                left_side_str,
-                [
-                    (
-                        ord("k"),
-                        lambda: self.set_position(max(0, self.position - 1)),
-                        "up",
-                    ),
-                    (
-                        ord("j"),
-                        lambda: self.set_position(
-                            min(self.position + 1, len(self.assignments) - 1)
-                        ),
-                        "down",
-                    ),
-                    (
-                        ord("o"),
-                        lambda: self.open_url(
-                            self.current_os,
-                            self.assignments[self.main_win_start + self.position][
-                                "url"
-                            ],
-                        ),
-                        "open in browser",
-                    ),
-                ],
-            )
-            # TODO: Add "o" to open in browser
-            # TODO: Remove the cursor from all screens except when entering input
 
         elif entry == "discussions":
             pass
@@ -731,6 +777,13 @@ class CourseSubMenu(Menu):
                         lambda: navigate(1),
                     ),
                     (ord("k"), lambda: navigate(-1)),
+                    (
+                        ord("o"),
+                        lambda: self.open_url(
+                            self.current_os,
+                            graded_assignments[self.position]["html_url"],
+                        ),
+                    ),
                 ],
                 right_side_str,
                 right_offset,
@@ -752,6 +805,15 @@ class CourseSubMenu(Menu):
                         ),
                     ),
                     (ord("k"), lambda: self.set_position(max(self.position - 1, 0))),
+                    (
+                        ord("o"),
+                        lambda: self.open_url(
+                            self.current_os,
+                            self.quizzes[self.main_win_start + self.position][
+                                "html_url"
+                            ],
+                        ),
+                    ),
                 ],
                 right_side_str,
                 right_offset,
