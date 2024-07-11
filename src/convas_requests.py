@@ -27,12 +27,28 @@ def get_paginated_responses(url: str, headers: dict[str, str]) -> list[str] | No
         elif status_code != 200:
             print(f"Error: {status_code}")
             return None
+        res_h = response.getheaders()
+        for header in res_h:
+            if header[0] == "link":
+                links = header[1]
+                links = links.split(",")
+                current_page = ""
+                last_page = ""
+                for link in links:
+                    link = link.split(";")
+                    is_next = link[1].split("=")
+                    if is_next[1] == '"current"':
+                        current_page = link[0].strip().strip("<>")
+                    if is_next[1] == '"next"':
+                        next_page = link[0].strip("<>")
+                    if is_next[1] == '"last"':
+                        last_page = link[0].strip("<>")
+                        if current_page == last_page:
+                            return data
+                break
         response_data: str = response.read().decode("utf-8")
         response.close()
         data.extend(response_data)
-        # what is the type of this response.links.get("url")
-        #
-        next_page = response.links.get("next", {}).get("url")
     return data
 
 
@@ -44,7 +60,7 @@ def get_current_courses(json_obj: list[dict[str, str]]) -> list[dict[str, str]]:
     return [
         course
         for course in json_obj
-        if course["created_at"][:10] == json_obj[-1]["created_at"][:10]
+        if course["term"]["name"] == json_obj[-1]["term"]["name"]
     ]
 
 
@@ -61,7 +77,7 @@ def get_current_course_names(json_obj: list[dict[str, str]]) -> list[str]:
     return [
         course["course_code"]
         for course in json_obj
-        if course["created_at"][:10] == json_obj[-1]["created_at"][:10]
+        if course["term"]["name"] == json_obj[-1]["term"]["name"]
     ]
 
 
@@ -69,7 +85,7 @@ def get_current_course_name_id_map(json_obj: list[dict[str, str]]) -> dict[str, 
     return {
         course["name"]: course["id"]
         for course in json_obj
-        if course["created_at"][:10] == json_obj[-1]["created_at"][:10]
+        if course["term"]["name"] == json_obj[-1]["term"]["name"]
     }
 
 
@@ -77,7 +93,7 @@ def get_current_course_id(json_obj: list[dict[str, str]]) -> list[str]:
     return [
         course["id"]
         for course in json_obj
-        if course["created_at"][:10] == json_obj[-1]["created_at"][:10]
+        if course["term"]["name"] == json_obj[-1]["term"]["name"]
     ]
 
 
@@ -92,6 +108,14 @@ def get_todo_items(
 ) -> list[str] | None:
     req: list[str] = request.urlopen(f"{url}/{course_id}/todo", headers=headers)
     return req
+
+
+def get_course_info(url: str, headers: dict):
+    courses = get_paginated_responses(
+        f"{url}?per_page=60&enrollment_type=student&include[]=syllabus_body&include[]=total_scores&include[]=public_description&include[]=course_progress&include[]=sections&include[]=teachers&include[]=term&include[]=favorites",
+        headers,
+    )
+    return courses
 
 
 def get_quizzes(url: str, headers: dict[str, str], course_id: int) -> list[str] | None:
@@ -110,7 +134,7 @@ def download_file(
     try:
         with request.urlopen(url) as response:
             with open(outfile, "wb") as out_file:
-                _ = out_file.write(response.read())
+                out_file.write(response.read())
                 return True
     except error.URLError as err:
         Logger.info(f"Failed to download file. Exception {err}")
