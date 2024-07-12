@@ -8,6 +8,7 @@ from urllib import error, request
 from urllib.error import HTTPError
 from urllib.request import Request
 from http.client import HTTPResponse
+from datetime import datetime
 
 from helper import Logger
 
@@ -20,14 +21,23 @@ def get_paginated_responses(url: str, headers: dict[str, str]) -> list[str] | No
     data: list[str] = []
     while next_page:
         req: Request = Request(next_page, headers=headers)
-        response: HTTPResponse = request.urlopen(req)
+        try:
+            response: HTTPResponse = request.urlopen(req)
+        except HTTPError as e:
+            Logger.info(f"Error fetching data: {e}")
+            return
         status_code: int = response.getcode()
         if status_code == 404:
             return None
         elif status_code != 200:
-            print(f"Error: {status_code}")
-            return None
+            print(f"Error fetching data: {status_code}")
+            exit()
+
+        response_data: dict[str, str] = json.loads(response.read().decode("utf-8"))
+        data.extend(response_data)
+
         res_h = response.getheaders()
+        response.close()
         for header in res_h:
             if header[0] == "link":
                 links = header[1]
@@ -46,9 +56,6 @@ def get_paginated_responses(url: str, headers: dict[str, str]) -> list[str] | No
                         if current_page == last_page:
                             return data
                 break
-        response_data: str = response.read().decode("utf-8")
-        response.close()
-        data.extend(response_data)
     return data
 
 
@@ -124,7 +131,7 @@ def get_quizzes(url: str, headers: dict[str, str], course_id: int) -> list[str] 
 
 
 def get_files(url: str, headers: dict[str, str], course_id: int) -> list[str] | None:
-    files = get_paginated_responses(f"{url}/{course_id}/files", headers)
+    files = get_paginated_responses(f"{url}{course_id}/files", headers)
     return files
 
 
@@ -142,8 +149,36 @@ def download_file(
 
 
 def get_assignments_request(url: str, headers: dict[str, str], course_id: int):
-    print("Getting assignments for %s" % course_id, end="\n")
-    assignments = get_paginated_responses(f"{url}/{course_id}/assignments", headers)
-    with open(f"assignments{course_id}.json", "w") as file:
-        json.dump(assignments, file)
+    assignments = get_paginated_responses(
+        f"{url}/courses/{course_id}/assignments", headers
+    )
     return assignments
+
+
+def get_announcements_request(
+    url: str, headers: dict[str, str], course_id: list[str] | str, start_date: str
+):
+    if isinstance(course_id, str):
+        current_timestamp = datetime.now().strftime("%Y:%m:%d")
+        announcements: list[dict[str, str]] = get_paginated_responses(
+            f"{url}/announcements?context_codes[]=course_{course_id}&start_date={start_date}&end_date={current_timestamp}"
+        )
+    elif isinstance(course_id, list):
+        query_params = ""
+        for course in course_id:
+            query_params += f"context_codes[]=course_{course}&"
+        query_params += f"start_date={start_date}"
+        announcements = get_paginated_responses(
+            f"{url}/announcements?{query_params}", headers
+        )
+    return announcements
+
+
+def get_files_request(url: str, headers: dict[str, str], course_id: int):
+    files = get_paginated_responses(f"{url}courses/{course_id}/files", headers)
+    return files
+
+
+def get_quizzes_request(url: str, headers: dict[str, str], course_id: int):
+    quizzes = get_paginated_responses(f"{url}courses/{course_id}/quizzes", headers)
+    return quizzes

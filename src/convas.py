@@ -8,7 +8,7 @@ import platform
 import subprocess
 from curses import panel
 from inspect import getfullargspec
-from json import loads
+from json import loads, dumps
 from typing import Any, Callable
 from config import Config
 from convas_requests import (
@@ -16,6 +16,11 @@ from convas_requests import (
     get_current_course_id,
     get_current_course_names,
     get_discussions,
+    get_course_info,
+    get_assignments_request,
+    get_announcements_request,
+    get_files_request,
+    get_quizzes_request,
 )
 from helper import (
     Logger,
@@ -30,17 +35,17 @@ CONFIG_FILE = "%s/.config/convas/config" % HOME
 BORDER = 1
 DEV = 1
 
-config = None
-with open(CONFIG_FILE) as file:
-    for line in file:
-        if "=" in line:
-            key, value = line.strip().split("=")
-            config = Config(value)
+try:
+    with open(CONFIG_FILE) as file:
+        config = Config()
+        config.read_config(file)
+except FileNotFoundError:
+    print("Unable to read config file")
+    exit()
 
 if "config" not in globals():
     raise Exception("Unable to read config file")
-
-url = "https://canvas.umd.umich.edu/api/v1/courses"
+    exit()
 
 headers = {"Authorization": f"Bearer {config.get_token() if config else None}"}
 
@@ -63,6 +68,7 @@ class Menu(object):
 class CourseSubMenu(Menu):
     def __init__(
         self,
+        cache_dir,
         window: Any,
         course_id: int,
         course_info: dict[str, str],
@@ -74,6 +80,7 @@ class CourseSubMenu(Menu):
         self.window = window
         self.course_info = course_info
         rows, cols = self.window.getmaxyx()
+        self.cache_dir = cache_dir
         self.current_os = platform.system()
         self.window.scrollok(True)
         self.window.keypad(1)
@@ -105,25 +112,28 @@ class CourseSubMenu(Menu):
         self.main_win_start = 0
         self.main_win_end = 0
         self.course_id = course_id
-        self.assignments: list[dict[str, str]] = loads(
-            (open(f"./assignments{course_id}.json").read())
-        )
         self.main_rerender = 0
         self.switch_to_statusbar_callback = switch_to_statusbar_callback
 
         def file_exists(filename: str) -> bool:
             return subprocess.run(["ls", filename]).returncode == 0
 
-        if file_exists(f"./files{course_id}.json"):
+        self.assignments: list[dict[str, str]] = loads(
+            (open(f"{self.cache_dir}assignments{course_id}.json").read())
+        )
+
+        if file_exists(f".{self.cache_dir}files{course_id}.json"):
             self.files: list[dict[str, str]] = loads(
-                open(f"./files{course_id}.json").read()
+                open(f"{self.cache_dir}files{course_id}.json").read()
             )
-        if file_exists(f"./quizzes{course_id}.json"):
+        if file_exists(f"{self.cache_dir}quizzes{course_id}.json"):
             self.quizzes: list[dict[str, str]] = loads(
-                open(f"./quizzes{course_id}.json").read()
+                open(f"{self.cache_dir}quizzes{course_id}.json").read()
             )
-        if file_exists(f"./announcements{course_id}.json"):
-            self.announcements = loads(open(f"./announcements{course_id}.json").read())
+        if file_exists(f"{self.cache_dir}announcements{course_id}.json"):
+            self.announcements = loads(
+                open(f"{self.cache_dir}announcements{course_id}.json").read()
+            )
 
         if not isinstance(self.files, list):
             self.tabs.remove("Files")
@@ -1123,9 +1133,19 @@ class TextInput:
 
 class Convas(object):
     def __init__(self, stdscreen):
+        self.current_os = platform.system()
+        self.cache_dir = None
+        self.get_cache_dir()
         self.url = "https://canvas.umd.umich.edu/api/v1/courses"
         self.screen = stdscreen
-        self.course_info = loads(open("data.json").read())
+        self.make_api_calls(
+            get_courses=False,
+            get_announcements=True,
+            get_assignments=False,
+            get_files=True,
+            get_quizzes=True,
+        )
+        self.course_info = loads(open(f"{self.cache_dir}courses.json").read())
         self.course_names: list[str] = get_current_course_names(self.course_info)
         self.course_ids: list[str] = get_current_course_id(self.course_info)
         height, width = stdscreen.getmaxyx()
@@ -1147,11 +1167,77 @@ class Convas(object):
         panel.update_panels()
         curses.doupdate()
 
-    def make_api_calls_and_write_to_file():
-        pass
+    def get_cache_dir(self):
+        home = os.path.expanduser("~")
+        try:
+            if self.current_os == "Linux":
+                cache_dir = os.path.join(home, ".cache/convas")
+            elif self.current_os == "Windows":
+                cache_dir = os.path.join(home, "AppData", "Local", "Cache")
+            elif self.current_os == "darwin":
+                cache_dir = os.path.join(home, "Library", "Caches")
+            else:
+                cache_dir = os.path.expanduser("~/.cache")
+        except Exception as e:
+            print(f"Error getting cache directory: {e}")
+            exit()
+
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
+
+        self.cache_dir = cache_dir + "/"
+
+    def make_api_calls(
+        self,
+        get_courses=False,
+        get_assignments=False,
+        get_announcements=False,
+        get_files=False,
+        get_quizzes=False,
+    ):
+        """Method to make all api calls and cache them"""
+        domain = config.get_domain()
+
+        def write_json_to_file(filename: str, json_obj: dict[str, str]):
+            with open(filename, "w") as file:
+                file.write(dumps(json_obj))
+
+        # if the file already exists, then don't write till the user force reloads
+        if not os.path.isfile(f"{self.cache_dir}courses.json") or get_courses:
+            courses_info = get_course_info(f"{domain}api/v1/courses", headers)
+            write_json_to_file(f"{self.cache_dir}courses.json", courses_info)
+        else:
+            courses_info = loads(open(f"{self.cache_dir}courses.json").read())
+
+        course_ids: list[str] = get_current_course_id(courses_info)
+        if get_assignments:
+            for id in course_ids:
+                assignments = get_assignments_request(f"{domain}api/v1", headers, id)
+                Logger.info("%s" % assignments)
+                write_json_to_file(f"{self.cache_dir}assignments{id}.json", assignments)
+
+        start_date = courses_info[-1]["term"]["start_at"][:10]
+        if get_announcements:
+            announcements: list[dict[str, str]] = get_announcements_request(
+                f"{domain}/api/v1", headers, course_ids, start_date
+            )
+            for id in course_ids:
+                announcement = [
+                    announcement
+                    for announcement in announcements
+                    if announcement["context_code"][7:] == str(id)
+                ]  # context_code:  "course_<id>"
+                Logger.info(f"Announcements: {announcement} {id}")
+                write_json_to_file(
+                    f"{self.cache_dir}announcements{id}.json", announcement
+                )
 
     @staticmethod
     def switch_win_callback(switch_to_statusbar: bool, statusbar: StatusBar, win: Any):
+        # both win and statusbar have two virtual methods, display and run
+        # win.display will display the content of the window without focusing on it
+        # win.run will focus on the window and run the selection loop
+        # use win.focus if win.run has already been called
         if switch_to_statusbar:
             win.display()
             selected = statusbar.focus()
@@ -1236,6 +1322,7 @@ class Convas(object):
             self.width,
             self.course_ids,
             lambda course_id: CourseSubMenu(
+                self.cache_dir,
                 self.content_win,
                 course_id,
                 [course for course in self.course_info if course["id"] == course_id][0],
