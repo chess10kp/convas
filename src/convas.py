@@ -93,7 +93,6 @@ class CourseSubMenu(Menu):
             "Home",
             "Announcements",
             "Assignments",
-            "Grades",
             "Quizzes",
             "Files",
         ]
@@ -265,6 +264,7 @@ class CourseSubMenu(Menu):
             f"Started at: { started_at }",
             f"Instructor: { teacher }",
             f"Score: { score }",
+            f"Course ID: {self.course_id}",
         ]
         self.wrap_content_around_win(course_info_content, self.dashboard_course_info)
 
@@ -300,7 +300,6 @@ class CourseSubMenu(Menu):
             self.position = len(self.tabs) - 1
 
     def display_main_win(self, heading: int):
-        Logger.info("displaying main window")
         entry = self.tabs[heading].lower()
         rows_per_item = 1
         right_side_str: list[str, str] | None = None
@@ -309,7 +308,31 @@ class CourseSubMenu(Menu):
         rows, cols = self.main_win.getmaxyx()
         if entry == "assignments":
             max_rows = rows - 2
-            left_side_str = [assignment["name"] for assignment in self.assignments]
+            left_side_str = [["Assignment Name", ""]] + [
+                (
+                    [assignment["name"], ""]
+                    if len(assignment["name"]) < 30
+                    else [assignment["name"][:30] + "...", ""]
+                )
+                for assignment in self.assignments
+            ]
+            right_side_str = [["Points   Created at", ""]]
+
+            for assignment in self.assignments:
+                if ("submission" in assignment.keys()) and assignment["submission"][
+                    "submitted_at"
+                ] != 0:
+                    points = (
+                        f"{assignment['submission']['score']}{assignment['points_possible']}",
+                    )
+                else:
+                    points = f"{assignment['points_possible']}"
+                right_side_str += [[f"{points}   {assignment['created_at'][:10]}", ""]]
+                right_offset = [
+                    [(cols - len(str(right_str[0])) - 3), 0]
+                    for right_str in right_side_str
+                ]
+            rows_per_item = 2
             self.main_win_end = min(
                 (len(left_side_str) - self.main_win_start),
                 (max_rows - rows_per_item) // rows_per_item,
@@ -369,7 +392,7 @@ class CourseSubMenu(Menu):
                 ]
                 for assignment in self.assignments
                 if ("submission" in assignment.keys())
-                and assignment["submission"]["submitted_at"] != 0
+                and assignment["submission"]["submitted_at"] != -1
             ]
             right_offset = [
                 [(cols - len(str(right_str)) - 3), 0, 0] for right_str in right_side_str
@@ -403,10 +426,18 @@ class CourseSubMenu(Menu):
             left_side_str[self.main_win_start : self.main_win_end]
         ):
             if isinstance(item, str):
-                self.main_win.addstr(1 + index, 1, item)
+                if item != "":
+                    self.main_win.addstr(1 + index, 1, item)
+                else:
+                    self.main_win.hline(index + 1, 1, curses.ACS_HLINE, cols - 2)
             else:
-                for i in range(rows_per_item):
-                    self.main_win.addstr(rows_per_item * index + i + 1, 1, item[i])
+                for i in range(len(item)):
+                    if item[i] != "":
+                        self.main_win.addstr(rows_per_item * index + i + 1, 1, item[i])
+                    else:
+                        self.main_win.hline(
+                            rows_per_item * index + i + 1, 1, curses.ACS_HLINE, cols - 2
+                        )
         if right_side_str:
             for index, item in enumerate(
                 right_side_str[self.main_win_start : self.main_win_end]
@@ -418,7 +449,7 @@ class CourseSubMenu(Menu):
                         item,
                     )
                 else:
-                    for i in range(rows_per_item):
+                    for i in range(len(item)):
                         self.main_win.addstr(
                             1 + rows_per_item * index + i,
                             (right_offset[index][i] if right_offset is not None else 1),
@@ -467,7 +498,7 @@ class CourseSubMenu(Menu):
             for row in content:
                 row = clean_up_html(row)
                 row = row.replace("\n", "")
-                lines = (len(row) + w + BORDER *2 - 1) // w
+                lines = (len(row) + w + BORDER * 2 - 1) // w
                 start = 0
                 end = w - 2
                 for line in range(lines):
@@ -477,13 +508,13 @@ class CourseSubMenu(Menu):
 
                     linenm += 1
                     start = end
-                    end += w - BORDER 
+                    end += w - BORDER
         elif isinstance(content, str):
             content = clean_up_html(content)
             content = content.replace("\n", "")
-            lines = (len(content) + w + BORDER *2 - 1) // w
+            lines = (len(content) + w + BORDER * 2 - 1) // w
             start = 0
-            end = w - BORDER * 2 
+            end = w - BORDER * 2
             for line in range(lines):
                 if linenm == h:
                     return
