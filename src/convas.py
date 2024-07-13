@@ -1072,7 +1072,6 @@ class StatusBar(Menu):
         update_callback: Callable[int, None],
         change_win_callback: Callable[Any, None],
         set_keybind_help: Callable[list[tuple[str, str]], None],
-        display_binds: Callable[tuple[Any, Any], None],
     ):
         self.window = curses.newwin(3, width, height - 3, 0)
         self.position = 0
@@ -1089,12 +1088,17 @@ class StatusBar(Menu):
         self.change_win_callback = change_win_callback
         self.keybinds = []
         self.cmds = {
-            "help": lambda: display_binds((curses.A_BOLD, curses.A_NORMAL)),
-            "h": lambda: display_binds((curses.A_BOLD, curses.A_NORMAL)),
+            "help": lambda: None,
+            "h": lambda: None,
             "quit": lambda: None,
             "q": lambda: None,
         }
         self.set_keybind_help = set_keybind_help
+
+    def add_cmd(self, cmd: str, callback: Callable[None, None], alias="") -> None:
+        self.cmds[cmd] = callback
+        if alias != "":
+            self.cmds[alias] = callback
 
     def navigate(self, n: int) -> None:
         self.position += n
@@ -1207,18 +1211,18 @@ class TextInput:
 
 
 class Convas(object):
-    def __init__(self, stdscreen):
+    def __init__(self, stdscreen, install: bool = False, reload: bool = False):
         self.current_os = platform.system()
         self.cache_dir = None
         self.get_cache_dir()
         self.url = "https://canvas.umd.umich.edu/api/v1/courses"
         self.screen = stdscreen
         self.make_api_calls(
-            get_courses=False,
-            get_announcements=False,
-            get_assignments=False,
-            get_files=False,
-            get_quizzes=False,
+            get_courses=install,
+            get_announcements=install or reload,
+            get_assignments=install or reload,
+            get_files=install or reload,
+            get_quizzes=install or reload,
         )
         self.course_info = loads(open(f"{self.cache_dir}courses.json").read())
         self.course_names: list[str] = get_current_course_names(self.course_info)
@@ -1400,6 +1404,27 @@ class Convas(object):
 
         return True
 
+    def install(self):
+        """call all api calls and cache them"""
+        self.notify("Install", "sent install request", opts=(curses.A_BOLD))
+        self.make_api_calls(True, True, True, True, True)
+        self.course_info = loads(open(f"{self.cache_dir}courses.json").read())
+        self.course_names: list[str] = get_current_course_names(self.course_info)
+        self.course_ids: list[str] = get_current_course_id(self.course_info)
+        self.notify(
+            "Install",
+            "All data has been cached",
+            opts=(curses.A_BOLD, curses.A_NORMAL),
+        )
+        self.run()
+
+    def reload(self):
+        self.notify("Reload", "sent reload request", opts=(curses.A_BOLD))
+        self.make_api_calls(False, True, True, True, True)
+        self.window.clear()
+        self.notify("Reload", "All data has been reloaded", opts=(curses.A_BOLD))
+        self.run()
+
     def run(self) -> None:
         curses.curs_set(0)
         self.status_bar = StatusBar(
@@ -1419,8 +1444,15 @@ class Convas(object):
             ),
             self.switch_win_callback,
             self.set_keybind_help,
-            self.display_binds,
         )
+        self.status_bar.add_cmd("quit", exit, alias="q")
+        self.status_bar.add_cmd(
+            "help",
+            lambda: self.display_binds(curses.A_BOLD, curses.A_NORMAL),
+            alias="h",
+        )
+        self.status_bar.add_cmd("install", self.install)
+        self.status_bar.add_cmd("reload", self.reload)
 
         splash = r"""
         Convas - The CONsole client for canVAS
