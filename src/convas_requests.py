@@ -175,10 +175,10 @@ def get_announcements_request(
 
 
 def get_files_request(url: str, headers: dict[str, str], course_id: int):
-    files = get_paginated_responses(f"{url}courses/{course_id}/files", headers)
+    files = get_paginated_responses(f"{url}/courses/{course_id}/files", headers)
     return files
 
 
 def get_quizzes_request(url: str, headers: dict[str, str], course_id: int):
-    quizzes = get_paginated_responses(f"{url}courses/{course_id}/quizzes", headers)
+    quizzes = get_paginated_responses(f"{url}/courses/{course_id}/quizzes", headers)
     return quizzes

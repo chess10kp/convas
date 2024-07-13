@@ -122,7 +122,7 @@ class CourseSubMenu(Menu):
             (open(f"{self.cache_dir}assignments{course_id}.json").read())
         )
 
-        if file_exists(f".{self.cache_dir}files{course_id}.json"):
+        if file_exists(f"{self.cache_dir}files{course_id}.json"):
             self.files: list[dict[str, str]] = loads(
                 open(f"{self.cache_dir}files{course_id}.json").read()
             )
@@ -471,6 +471,7 @@ class CourseSubMenu(Menu):
                     if linenm + line == h:
                         return
                     win.addstr(linenm, 1, row[start:end])
+
                     linenm += 1
                     start = end
                     end += w - 2
@@ -525,7 +526,7 @@ class CourseSubMenu(Menu):
 
         def main_win_loop(
             left_side_str: list[str] | list[list[str]],
-            bindings: list[tuple[int, Callable[None, Any] | Callable[str, Any], str]],
+            bindings: list[tuple[int, Callable[[None], Any] | Callable[str, Any], str]],
             right_side_str: list[str] | None = None,
             right_offset: int | None = None,
             args: list[str] | None = None,
@@ -1140,9 +1141,9 @@ class Convas(object):
         self.screen = stdscreen
         self.make_api_calls(
             get_courses=False,
-            get_announcements=True,
+            get_announcements=False,
             get_assignments=False,
-            get_files=True,
+            get_files=False,
             get_quizzes=True,
         )
         self.course_info = loads(open(f"{self.cache_dir}courses.json").read())
@@ -1213,7 +1214,6 @@ class Convas(object):
         if get_assignments:
             for id in course_ids:
                 assignments = get_assignments_request(f"{domain}api/v1", headers, id)
-                Logger.info("%s" % assignments)
                 write_json_to_file(f"{self.cache_dir}assignments{id}.json", assignments)
 
         start_date = courses_info[-1]["term"]["start_at"][:10]
@@ -1227,10 +1227,22 @@ class Convas(object):
                     for announcement in announcements
                     if announcement["context_code"][7:] == str(id)
                 ]  # context_code:  "course_<id>"
-                Logger.info(f"Announcements: {announcement} {id}")
                 write_json_to_file(
                     f"{self.cache_dir}announcements{id}.json", announcement
                 )
+        if get_files:
+            for course_id in course_ids:
+                files: list[dict[str, str]] = get_files_request(
+                    f"{domain}/api/v1", headers, course_id
+                )
+                write_json_to_file(f"{self.cache_dir}files{course_id}.json", files)
+
+        if get_quizzes:
+            for course_id in course_ids:
+                quizzes: list[dict[str, str]] = get_quizzes_request(
+                    f"{domain}/api/v1", headers, course_id
+                )
+                write_json_to_file(f"{self.cache_dir}quizzes{course_id}.json", quizzes)
 
     @staticmethod
     def switch_win_callback(switch_to_statusbar: bool, statusbar: StatusBar, win: Any):
