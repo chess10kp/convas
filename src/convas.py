@@ -29,6 +29,9 @@ from helper import (
     hide_panel,
     clean_up_html,
 )
+import locale
+
+locale.setlocale(locale.LC_ALL, "")
 
 HOME = os.path.expanduser("~")
 CONFIG_FILE = "%s/.config/convas/config" % HOME
@@ -192,59 +195,67 @@ class CourseSubMenu(Menu):
                 int(rows * 0.4) - 2, int(cols * 0.7), srows + 2, scols + int(cols * 0.3)
             )
             self.dashboard_syllabus.border()
-            Logger.info(syllabus)
             self.wrap_content_around_win(
-                clean_up_html(syllabus), self.dashboard_syllabus
+                "Syllabus\n" + clean_up_html(syllabus), self.dashboard_syllabus, True
             )
             self.dashboard_syllabus.refresh()
         else:  # if no syllabus, expand course_info
             self.dashboard_course_info.resize(int(rows * 0.4) - 2, cols)
             self.dashboard_course_info.border()
 
+        title = ""
+        msg = ""
+        date = ""
         if self.announcements and len(self.announcements):
             latest_announcement = self.announcements[-1]
             msg = clean_up_html(latest_announcement["message"])
             title = latest_announcement["title"]
             date = latest_announcement["created_at"][:10]
-        else:
-            title = ""
-            msg = ""
-            date = ""
+
         self.wrap_content_around_win(
             [
-                "Latest Announcement: ",
+                "Latest Announcement\n",
                 (f"Title: { title }") if title != "" else "No announcements",
                 (f"Date: {date}") if len(date) else "",
                 msg,
             ],
             self.dashboard_announcement,
+            True,
         )
 
         upcoming_assignments = [""]
         completed_assignments = [""]
         if self.assignments and len(self.assignments):
-            upcoming_assignments = [
+            completed_assignments = [
                 assignment["name"]
                 for assignment in self.assignments
                 if "submission" not in assignment.keys()
             ]
-            completed_assignments = [
+            upcoming_assignments = [
                 assignment["name"]
                 for assignment in self.assignments
                 if ("submission" in assignment.keys())
                 and assignment["submission"]["submitted_at"] != 0
             ]
         self.wrap_content_around_win(
-            ["Completed assignments", " "] + upcoming_assignments
-            if len(upcoming_assignments)
-            else "No upcoming assignments",
+            ["Upcoming assignments", " "]
+            + (
+                upcoming_assignments
+                if len(upcoming_assignments)
+                else ["No upcoming assignments"]
+            ),
             self.upcoming_assignments,
+            True,
         )
         self.wrap_content_around_win(
-            ["Completed assignments", " "] + completed_assignments
-            if len(completed_assignments)
-            else "No upcoming assignments",
+            ["Completed assignments", " "]
+            + (
+                completed_assignments
+                if len(completed_assignments)
+                else ["No completed assignments"]
+            ),
             self.completed_assignments,
+            True,
         )
 
         course_full_name = self.course_info["name"]
@@ -400,17 +411,29 @@ class CourseSubMenu(Menu):
             rows_per_item = 3
 
         elif entry == "quizzes":
-            left_side_str = [quiz["title"][0:20] for quiz in self.quizzes]
-            right_side_str = [f"{quiz['due_at'][:10]}" for quiz in self.quizzes]
-            right_offset = [
-                (cols - len(str(right_str)) - 3) for right_str in right_side_str
+            left_side_str = [["Quiz name", ""]] + [
+                [quiz["title"][0:20], ""] for quiz in self.quizzes
             ]
+            right_side_str = [["Date created", ""]] + [
+                [f"{quiz['due_at'][:10]}", ""] for quiz in self.quizzes
+            ]
+            right_offset = [
+                [(cols - len(str(right_str)) - 3), 0] for right_str in right_side_str
+            ]
+            rows_per_item = 2
+
         elif entry == "files":
-            left_side_str = [[file["display_name"]] for file in self.files]
-            right_side_str = [[file["updated_at"][:10]] for file in self.files]
-            right_offset = [
-                [(cols - len(str(right_str)) - 3)] for right_str in right_side_str
+            left_side_str = [["Filename", ""]] + [
+                [file["display_name"][:30], ""] for file in self.files
             ]
+            right_side_str = [["filetype  " + "created_at", ""]] + [
+                [f"{file['mime_class']}  {file['updated_at'][:10]} ", ""]
+                for file in self.files
+            ]
+            right_offset = [
+                [(cols - len(str(right_str[0])) - 3), 0] for right_str in right_side_str
+            ]
+            rows_per_item = 2
 
         if not left_side_str:
             return
@@ -491,9 +514,13 @@ class CourseSubMenu(Menu):
             stderr=subprocess.DEVNULL,
         )
 
-    def wrap_content_around_win(self, content: str | list[str], win: Any):
+    def wrap_content_around_win(
+        self, content: str | list[str], win: Any, is_header=False
+    ):
         h, w = win.getmaxyx()
+        Logger.info(f" {h} {w}")
         linenm = 1
+        bolden = curses.A_BOLD if is_header else curses.A_NORMAL
         if isinstance(content, list):
             for row in content:
                 row = clean_up_html(row)
@@ -504,24 +531,28 @@ class CourseSubMenu(Menu):
                 for line in range(lines):
                     if linenm + line == h:
                         return
-                    win.addstr(linenm, 1, row[start:end])
+                    win.addstr(linenm, 1, row[start:end], bolden)
+                    bolden = curses.A_NORMAL
 
                     linenm += 1
                     start = end
                     end += w - BORDER
         elif isinstance(content, str):
             content = clean_up_html(content)
-            content = content.replace("\n", "")
             lines = (len(content) + w + BORDER * 2 - 1) // w
             start = 0
             end = w - BORDER * 2
             for line in range(lines):
-                if linenm == h:
+                Logger.info(lines)
+                if linenm == h - 2:
                     return
-                Logger.info("%s" % content[start:end])
-                win.addstr(linenm, 1, content[start:end])
+                try:
+                    win.addstr(linenm + line, 1, content[start : end + 1], bolden)
+                    bolden = curses.A_NORMAL
+                except curses.error:
+                    win.border()
                 start = end
-                end += w - BORDER
+                end += w - BORDER * 2
         win.noutrefresh()
 
     def main_win_panel_render(self, content: str | list[str]):
@@ -586,11 +617,23 @@ class CourseSubMenu(Menu):
                         )
                     else:
                         for i in range(rows_per_item):
-                            self.main_win.addstr(
-                                rows_per_item * (index - self.main_win_start) + i + 1,
-                                1,
-                                left[i],
-                            )
+                            if left[i] != "":
+                                self.main_win.addstr(
+                                    rows_per_item * (index - self.main_win_start)
+                                    + i
+                                    + 1,
+                                    1,
+                                    left[i],
+                                )
+                            else:
+                                self.main_win.hline(
+                                    rows_per_item * (index - self.main_win_start)
+                                    + i
+                                    + 1,
+                                    1,
+                                    curses.ACS_HLINE,
+                                    cols - 2,
+                                )
                             if has_right:
                                 self.main_win.addstr(
                                     1
@@ -677,31 +720,59 @@ class CourseSubMenu(Menu):
             def navigate(n: int):
                 if (
                     self.position + n <= self.main_win_end - 1
-                    and self.position + n >= self.main_win_start
+                    and self.position + n >= self.main_win_start + 1
                 ):
                     self.position += n
-                elif self.position + n > len(self.assignments):
+                elif self.position + n > len(self.assignments) + 1:
                     return
-                elif self.main_win_start > self.position + n:
+                elif self.main_win_start + 1 > self.position + n:
                     if self.main_win_start + n >= 0:
                         self.main_win_start += n
                         self.position += n
                         self.main_win_end += n
                         self.main_rerender = 1
-                elif self.position + n > self.main_win_start:
-                    if self.main_win_start + n + self.position < len(self.assignments):
+                elif self.position + n > self.main_win_start + 1:
+                    if (
+                        self.main_win_start + n + self.position
+                        < len(self.assignments) + 1
+                    ):
                         self.main_win_start += n
                         self.position += n
                         self.main_win_end += n
                         self.main_rerender = 1
 
-            left_side_str = [[assignment["name"]] for assignment in self.assignments]
-            rows_per_item = 1
+            left_side_str = [["Assignment Name", ""]] + [
+                (
+                    [assignment["name"], ""]
+                    if len(assignment["name"]) < 30
+                    else [assignment["name"][:30] + "...", ""]
+                )
+                for assignment in self.assignments
+            ]
+            right_side_str = [["Points   Created at", ""]]
+
+            for assignment in self.assignments:
+                if ("submission" in assignment.keys()) and assignment["submission"][
+                    "submitted_at"
+                ] != 0:
+                    points = (
+                        f"{assignment['submission']['score']}{assignment['points_possible']}",
+                    )
+                else:
+                    points = f"{assignment['points_possible']}"
+                right_side_str += [[f"{points}   {assignment['created_at'][:10]}", ""]]
+                right_offset = [
+                    [(cols - len(str(right_str[0])) - 3), 0]
+                    for right_str in right_side_str
+                ]
+            rows_per_item = 2
             max_rows = rows - 2
+
             self.main_win_end = min(
-                (len(left_side_str[self.main_win_start :])),
+                (len(left_side_str) - self.main_win_start),
                 (max_rows - rows_per_item) // rows_per_item,
             )
+            self.position = 1
             main_win_loop(
                 left_side_str,
                 [
@@ -717,6 +788,8 @@ class CourseSubMenu(Menu):
                         ),
                     ),
                 ],
+                right_side_str,
+                right_offset,
             )
 
         elif entry == "announcements":
@@ -785,67 +858,47 @@ class CourseSubMenu(Menu):
                 right_offset,
             )
 
-        elif entry == "discussions":
-            pass
+        elif entry == "quizzes":
 
-        elif entry == "grades":
-            graded_assignments = [
-                assignment
-                for assignment in self.assignments
-                if ("submission" in assignment.keys())
-                and assignment["submission"]["submitted_at"] != 0
-            ]
-
-            def navigate(n: int) -> bool:
+            def navigate(n: int):
                 if (
                     self.position + n <= self.main_win_end - 1
-                    and self.position + n >= self.main_win_start
+                    and self.position + n >= self.main_win_start + 1
                 ):
                     self.position += n
-                elif (
-                    self.position + n + self.main_win_start
-                    > len(graded_assignments) - 1
-                ):
+                elif self.position + n > len(self.quizzes) + 1:
                     return
-                elif self.main_win_start > self.position + n:
+                elif self.main_win_start + 1 > self.position + n:
                     if self.main_win_start + n >= 0:
                         self.main_win_start += n
                         self.position += n
                         self.main_win_end += n
                         self.main_rerender = 1
-                elif self.position + n > self.main_win_start:
-                    if self.main_win_start + n + self.position < len(
-                        graded_assignments
-                    ):
+                elif self.position + n > self.main_win_start + 1:
+                    if self.main_win_start + n + self.position < len(self.quizzes) + 1:
                         self.main_win_start += n
                         self.position += n
                         self.main_win_end += n
                         self.main_rerender = 1
 
-            left_side_str = [
-                [assignment["name"], assignment["submission"]["submitted_at"][:10], ""]
-                for assignment in graded_assignments
+            left_side_str = [["Quiz name", ""]] + [
+                [quiz["title"][0:30], ""] for quiz in self.quizzes
             ]
-            right_side_str = [
-                [
-                    f"{assignment['points_possible']}/ {assignment['submission']['score']}",
-                    "",
-                    "",
-                ]
-                for assignment in graded_assignments
+            right_side_str = [["Date created", ""]] + [
+                [f"{quiz['due_at'][:10]}", ""] for quiz in self.quizzes
             ]
             right_offset = [
-                [(cols - len(str(right_str)) - 3), 0, 0] for right_str in right_side_str
+                [(cols - len(str(right_str)) - 3), 0] for right_str in right_side_str
             ]
-
-            rows_per_item = 3
             max_rows = rows - 2
+
+            rows_per_item = 2
+            self.position = 1
             self.main_win_start = 0
             self.main_win_end = min(
                 (len(left_side_str[self.main_win_start :])),
                 (max_rows - rows_per_item) // rows_per_item,
             )
-
             main_win_loop(
                 left_side_str,
                 [
@@ -853,35 +906,10 @@ class CourseSubMenu(Menu):
                         ord("j"),
                         lambda: navigate(1),
                     ),
-                    (ord("k"), lambda: navigate(-1)),
                     (
-                        ord("o"),
-                        lambda: self.open_url(
-                            self.current_os,
-                            graded_assignments[self.position]["html_url"],
-                        ),
+                        ord("k"),
+                        lambda: navigate(-1),
                     ),
-                ],
-                right_side_str,
-                right_offset,
-            )
-
-        elif entry == "quizzes":
-            left_side_str = [quiz["title"][0:20] for quiz in self.quizzes]
-            right_side_str = [f"{quiz['due_at'][:10]}" for quiz in self.quizzes]
-            right_offset = [
-                (cols - len(str(right_str)) - 3) for right_str in right_side_str
-            ]
-            main_win_loop(
-                left_side_str,
-                [
-                    (
-                        ord("j"),
-                        lambda: self.set_position(
-                            min(self.position + 1, len(self.quizzes) - 1)
-                        ),
-                    ),
-                    (ord("k"), lambda: self.set_position(max(self.position - 1, 0))),
                     (
                         ord("o"),
                         lambda: self.open_url(
@@ -898,33 +926,38 @@ class CourseSubMenu(Menu):
 
         elif entry == "files":
 
-            def navigate(n: int) -> bool:
+            def navigate(n: int):
                 if (
                     self.position + n <= self.main_win_end - 1
-                    and self.position + n >= self.main_win_start
+                    and self.position + n >= self.main_win_start + 1
                 ):
                     self.position += n
-                elif self.position + n + self.main_win_start > len(self.files) - 1:
+                elif self.position + n > len(self.files) + 1:
                     return
-                elif self.main_win_start > self.position + n:
+                elif self.main_win_start + 1 > self.position + n:
                     if self.main_win_start + n >= 0:
                         self.main_win_start += n
                         self.position += n
                         self.main_win_end += n
                         self.main_rerender = 1
-                elif self.position + n > self.main_win_start:
-                    if self.main_win_start + n + self.position < len(self.files):
+                elif self.position + n > self.main_win_start + 1:
+                    if self.main_win_start + n + self.position < len(self.files) + 1:
                         self.main_win_start += n
                         self.position += n
                         self.main_win_end += n
                         self.main_rerender = 1
 
-            files = [file for file in self.files]
-            left_side_str = [[file["display_name"]] for file in files]
-            right_side_str = [[file["updated_at"][:10]] for file in files]
-            right_offset = [
-                [(cols - len(str(right_str)) - 3)] for right_str in right_side_str
+            left_side_str = [["Filename", ""]] + [
+                [file["display_name"][:30], ""] for file in self.files
             ]
+            right_side_str = [["filetype  " + "created_at", ""]] + [
+                [f"{file['mime_class']}  {file['updated_at'][:10]} ", ""]
+                for file in self.files
+            ]
+            right_offset = [
+                [(cols - len(str(right_str[0])) - 3), 0] for right_str in right_side_str
+            ]
+            rows_per_item = 2
 
             def download_file_at_cursor(
                 current_os: str, url: str, file_id: str, name: str
@@ -937,7 +970,6 @@ class CourseSubMenu(Menu):
                     download_dir = os.path.expanduser("~/Downloads")
                 else:
                     download_dir = os.path.expanduser("~/Downloads")
-
                 file_path = os.path.join(download_dir, name)
                 download = download_file(
                     url,
@@ -951,6 +983,13 @@ class CourseSubMenu(Menu):
                     return None
                 self.notify("Downloaded", f"{name} downloaded to {download_dir}")
 
+            max_rows = rows - 2
+            self.main_win_end = min(
+                (len(left_side_str[self.main_win_start :])),
+                (max_rows - rows_per_item) // rows_per_item,
+            )
+            self.position = 1
+
             main_win_loop(
                 left_side_str,
                 [
@@ -960,9 +999,9 @@ class CourseSubMenu(Menu):
                         ord("d"),
                         lambda: download_file_at_cursor(
                             self.current_os,
-                            files[self.position]["url"],
-                            files[self.position]["id"],
-                            files[self.position]["display_name"],
+                            self.files[self.position]["url"],
+                            self.files[self.position]["id"],
+                            self.files[self.position]["display_name"],
                         ),
                         "down",
                     ),
@@ -1165,8 +1204,6 @@ class TextInput:
                 if self.validate(buffer):
                     curses.curs_set(0)
                     return buffer
-            else:
-                self.window.addstr(str(key))
 
 
 class Convas(object):
