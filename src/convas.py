@@ -464,7 +464,9 @@ class CourseSubMenu(Menu):
         linenm = 1
         if isinstance(content, list):
             for row in content:
-                lines = (len(row) + w + 2 - 1) // w
+                row = clean_up_html(row)
+                row = row.replace("\n", "")
+                lines = (len(row) + w + BORDER *2 - 1) // w
                 start = 0
                 end = w - 2
                 for line in range(lines):
@@ -474,17 +476,21 @@ class CourseSubMenu(Menu):
 
                     linenm += 1
                     start = end
-                    end += w - 2
+                    end += w - BORDER 
         elif isinstance(content, str):
-            lines = (len(content) + w + 2 - 1) // w
+            content = clean_up_html(content)
+            content = content.replace("\n", "")
+            lines = (len(content) + w + BORDER *2 - 1) // w
             start = 0
-            end = w - 2
+            end = w - BORDER * 2 
+            Logger.info("win dump:")
             for line in range(lines):
                 if linenm == h:
                     return
+                Logger.info("%s" % content[start:end])
                 win.addstr(linenm, 1, content[start:end])
                 start = end
-                end += w - 2
+                end += w - BORDER
         win.noutrefresh()
 
     def main_win_panel_render(self, content: str | list[str]):
@@ -1144,7 +1150,7 @@ class Convas(object):
             get_announcements=False,
             get_assignments=False,
             get_files=False,
-            get_quizzes=True,
+            get_quizzes=False,
         )
         self.course_info = loads(open(f"{self.cache_dir}courses.json").read())
         self.course_names: list[str] = get_current_course_names(self.course_info)
