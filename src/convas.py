@@ -190,9 +190,10 @@ class CourseSubMenu(Menu):
         syllabus = self.course_info["syllabus_body"]
         if syllabus:
             self.dashboard_syllabus = self.dashboard_win.subwin(
-                int(rows * 0.4) - 2, int(cols * 0.7), srows + 1, scols + int(cols * 0.3)
+                int(rows * 0.4) - 2, int(cols * 0.7), srows + 2, scols + int(cols * 0.3)
             )
             self.dashboard_syllabus.border()
+            Logger.info(syllabus)
             self.wrap_content_around_win(
                 clean_up_html(syllabus), self.dashboard_syllabus
             )
@@ -483,7 +484,6 @@ class CourseSubMenu(Menu):
             lines = (len(content) + w + BORDER *2 - 1) // w
             start = 0
             end = w - BORDER * 2 
-            Logger.info("win dump:")
             for line in range(lines):
                 if linenm == h:
                     return
