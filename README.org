@@ -1,0 +1,27 @@
+* Convas 
+    Convas lets you use [[https://www.instructure.com/canvas][Canvas LMS]] in the terminal, with no dependencies other than Python. 
+ 
+    I wanted to see how far I could go with just the Python standard library and the Canvas API. There's quite a lot built into it, including
+    - complete python bindings for [[https://ftp.gnu.org/gnu/ncurses][ncurses]]
+    - a requests library (urllib)
+    - a cli library (argparse)
+    - a logging library (logging)
+    - a regex library (re)
+
+    Convas has support for browsing: 
+    + Assignments 
+    + Files
+    + Quizzes (including downloads)
+    + Announcements
+
+*  Installation
+    - Put you Canvas API token and domain in ~/.config/convas/config
+    #+begin_example
+    TOKEN=<token> 
+    domain=https://canvas.school.edu
+    #+end_example
+    - Clone and run 
+    #+begin_src sh 
+    git clone ~/https://github.com/chess10kp/convas.git ~/.local/bin/convas
+    ~/.local/bin/convas/src/convas.py -i 
+    #+end_src
