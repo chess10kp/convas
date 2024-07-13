@@ -3,6 +3,7 @@
 # pyright: reportUnknownVariableType=false
 
 import curses
+import time
 import os
 import platform
 import subprocess
@@ -30,6 +31,8 @@ from helper import (
     clean_up_html,
 )
 import locale
+
+import argparse
 
 locale.setlocale(locale.LC_ALL, "")
 
@@ -1407,22 +1410,32 @@ class Convas(object):
     def install(self):
         """call all api calls and cache them"""
         self.notify("Install", "sent install request", opts=(curses.A_BOLD))
+        start = time.time()
         self.make_api_calls(True, True, True, True, True)
+        end = time.time()
+        elapsed = start - end
         self.course_info = loads(open(f"{self.cache_dir}courses.json").read())
         self.course_names: list[str] = get_current_course_names(self.course_info)
         self.course_ids: list[str] = get_current_course_id(self.course_info)
         self.notify(
             "Install",
-            "All data has been cached",
+            "All data has been cached in %s seconds" % elapsed,
             opts=(curses.A_BOLD, curses.A_NORMAL),
         )
         self.run()
 
     def reload(self):
         self.notify("Reload", "sent reload request", opts=(curses.A_BOLD))
+        start = time.time()
         self.make_api_calls(False, True, True, True, True)
+        end = time.time()
+        elapsed = start - end
         self.window.clear()
-        self.notify("Reload", "All data has been reloaded", opts=(curses.A_BOLD))
+        self.notify(
+            "Reload",
+            "All data has been reloaded in %s seconds" % elapsed,
+            opts=(curses.A_BOLD),
+        )
         self.run()
 
     def run(self) -> None:
@@ -1457,7 +1470,9 @@ class Convas(object):
         splash = r"""
         Convas - The CONsole client for canVAS
 
-        type    :help<Enter>    for keybind help
+        type    :help<CR>    for keybind help
+        type    :install<CR> to cache all courses (one time)
+        type    :reload<CR> to reload all course information
         """
 
         try:
@@ -1480,8 +1495,22 @@ class Convas(object):
 
 
 def main(stdscr):
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--install",
+        "-i",
+        action="store_true",
+        help="Run once at the start of the semester to cache courses",
+    )
+    parser.add_argument(
+        "--reload",
+        "-r",
+        action="store_true",
+        help="Reload all course data",
+    )
+    args = parser.parse_args()
     curses.use_default_colors()
-    convas = Convas(stdscr)
+    convas = Convas(stdscr, install=args.install, reload=args.reload)
     convas.run()
 
 
