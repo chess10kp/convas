@@ -15,7 +15,7 @@
     + Announcements
 
 *  Installation
-    - Put you Canvas API token and domain in ~/.config/convas/config
+    - Add your Canvas API token and canvas domain in ~/.config/convas/config
     #+begin_example
     TOKEN=<token> 
     domain=https://canvas.school.edu
