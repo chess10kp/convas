@@ -29,6 +29,9 @@ class Config:
             self.map["domain"].append("/")
         return self.map["domain"]
 
+    def get_current_term(self) -> str:
+        return self.map["term"] if self.map["term"] != "" else ""
+
     def read_config(self, file) -> None:
         for line in file:
             if "=" in line:

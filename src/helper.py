@@ -3,7 +3,6 @@ from curses import panel
 from curses import window, doupdate
 from re import sub
 from html import unescape
-from time import sleep
 
 logging.basicConfig(level=logging.INFO, filename="log")
 Logger = logging.getLogger("samplelogger")

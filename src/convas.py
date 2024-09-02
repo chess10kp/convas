@@ -2,37 +2,39 @@
 
 # pyright: reportUnknownVariableType=false
 
+import argparse
 import curses
-import time
+import locale
 import os
 import platform
 import subprocess
+import time
 from curses import panel
+from curses import error, ERR
 from inspect import getfullargspec
-from json import loads, dumps
+from json import dumps, loads
 from typing import Any, Callable
+
 from config import Config
 from convas_requests import (
     download_file,
+    get_announcements_request,
+    get_assignments_request,
+    get_course_info,
     get_current_course_id,
     get_current_course_names,
     get_discussions,
-    get_course_info,
-    get_assignments_request,
-    get_announcements_request,
     get_files_request,
     get_quizzes_request,
 )
+
 from helper import (
     Logger,
-    show_panel_hide_on_keypress,
-    show_panel,
-    hide_panel,
     clean_up_html,
+    hide_panel,
+    show_panel,
+    show_panel_hide_on_keypress,
 )
-import locale
-
-import argparse
 
 locale.setlocale(locale.LC_ALL, "")
 
@@ -86,7 +88,7 @@ class CourseSubMenu(Menu):
         self.window = window
         self.course_info = course_info
         rows, cols = self.window.getmaxyx()
-        self.cache_dir = cache_dir
+        self.cache_dir: str = cache_dir
         self.current_os = platform.system()
         self.window.scrollok(True)
         self.window.keypad(1)
@@ -139,7 +141,6 @@ class CourseSubMenu(Menu):
             self.announcements = loads(
                 open(f"{self.cache_dir}announcements{course_id}.json").read()
             )
-
         if not isinstance(self.files, list):
             self.tabs.remove("Files")
         if not isinstance(self.quizzes, list):
@@ -517,6 +518,7 @@ class CourseSubMenu(Menu):
             stderr=subprocess.DEVNULL,
         )
 
+    @staticmethod
     def wrap_content_around_win(
         self, content: str | list[str], win: Any, is_header=False
     ):
@@ -1214,22 +1216,32 @@ class TextInput:
 
 
 class Convas(object):
-    def __init__(self, stdscreen, install: bool = False, reload: bool = False):
+    def __init__(self, stdscreen, install: str, reload: bool = False):
+        self.term_name = install or config.get_current_term()
+        if not self.term_name:
+            exit()
+        should_install = install != ""
+        self.window = stdscreen
         self.current_os = platform.system()
         self.cache_dir = None
         self.get_cache_dir()
-        self.url = "https://canvas.umd.umich.edu/api/v1/courses"
+        self.url = config.get_domain()
         self.screen = stdscreen
         self.make_api_calls(
-            get_courses=install,
-            get_announcements=install or reload,
-            get_assignments=install or reload,
-            get_files=install or reload,
-            get_quizzes=install or reload,
+            get_courses=should_install,
+            get_announcements=should_install or reload,
+            get_assignments=should_install or reload,
+            get_files=should_install or reload,
+            get_quizzes=should_install or reload,
+            term_name=install,
         )
         self.course_info = loads(open(f"{self.cache_dir}courses.json").read())
-        self.course_names: list[str] = get_current_course_names(self.course_info)
-        self.course_ids: list[str] = get_current_course_id(self.course_info)
+        self.course_names: list[str] = get_current_course_names(
+            self.course_info, self.term_name
+        )
+        self.course_ids: list[str] = get_current_course_id(
+            self.course_info, self.term_name
+        )
         height, width = stdscreen.getmaxyx()
         self.height = height
         self.width = width
@@ -1271,11 +1283,12 @@ class Convas(object):
 
     def make_api_calls(
         self,
-        get_courses=False,
-        get_assignments=False,
-        get_announcements=False,
-        get_files=False,
-        get_quizzes=False,
+        get_courses,
+        get_assignments,
+        get_announcements,
+        get_files,
+        get_quizzes,
+        term_name="",
     ):
         """Method to make all api calls and cache them"""
         domain = config.get_domain()
@@ -1291,7 +1304,7 @@ class Convas(object):
         else:
             courses_info = loads(open(f"{self.cache_dir}courses.json").read())
 
-        course_ids: list[str] = get_current_course_id(courses_info)
+        course_ids: list[str] = get_current_course_id(courses_info, self.term_name)
         if get_assignments:
             for id in course_ids:
                 assignments = get_assignments_request(f"{domain}api/v1", headers, id)
@@ -1461,7 +1474,7 @@ class Convas(object):
         self.status_bar.add_cmd("quit", exit, alias="q")
         self.status_bar.add_cmd(
             "help",
-            lambda: self.display_binds(curses.A_BOLD, curses.A_NORMAL),
+            lambda: self.display_binds((curses.A_BOLD, curses.A_NORMAL)),
             alias="h",
         )
         self.status_bar.add_cmd("install", self.install)
@@ -1499,7 +1512,7 @@ def main(stdscr):
     parser.add_argument(
         "--install",
         "-i",
-        action="store_true",
+        default="",
         help="Run once at the start of the semester to cache courses",
     )
     parser.add_argument(

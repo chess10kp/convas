@@ -80,28 +80,24 @@ def get_discussions(assignments: list[dict[str, str]]) -> list[dict[str, str]]:
     ]
 
 
-def get_current_course_names(json_obj: list[dict[str, str]]) -> list[str]:
+def get_current_course_names(json_obj: list[dict[str, str]], term) -> list[str]:
     return [
-        course["course_code"]
-        for course in json_obj
-        if course["term"]["name"] == json_obj[-1]["term"]["name"]
+        course["course_code"] for course in json_obj if course["term"]["name"] == term
     ]
 
 
-def get_current_course_name_id_map(json_obj: list[dict[str, str]]) -> dict[str, str]:
+def get_current_course_name_id_map(
+    json_obj: list[dict[str, str]], term
+) -> dict[str, str]:
     return {
         course["name"]: course["id"]
         for course in json_obj
-        if course["term"]["name"] == json_obj[-1]["term"]["name"]
+        if course["term"]["name"] == term
     }
 
 
-def get_current_course_id(json_obj: list[dict[str, str]]) -> list[str]:
-    return [
-        course["id"]
-        for course in json_obj
-        if course["term"]["name"] == json_obj[-1]["term"]["name"]
-    ]
+def get_current_course_id(json_obj: list[dict[str, str]], term: str) -> list[str]:
+    return [course["id"] for course in json_obj if course["term"]["name"] == term]
 
 
 def get_request(url: str, request_headers: dict[str, str]) -> HTTPResponse:
