@@ -519,11 +519,8 @@ class CourseSubMenu(Menu):
         )
 
     @staticmethod
-    def wrap_content_around_win(
-        self, content: str | list[str], win: Any, is_header=False
-    ):
+    def wrap_content_around_win(content: str | list[str], win: Any, is_header=False):
         h, w = win.getmaxyx()
-        Logger.info(f" {h} {w}")
         linenm = 1
         bolden = curses.A_BOLD if is_header else curses.A_NORMAL
         if isinstance(content, list):
