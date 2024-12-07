@@ -1,6 +1,15 @@
 #!/usr/bin/env python
 
+# type: ignore
 # pyright: reportUnknownVariableType=false
+# pyright: reportAny=false
+# pyright: reportImplicitRelativeImport=false
+# pyright: reportUnknownMemberType=false
+# pyright: reportUnknownParameterType=false
+# pyright: reportUnknownParameterType=false
+# pyright: reportUnknownArgumentType=false
+# pyright: reportMissingParameterType=false
+# pyright: reportUnusedCallResult=false
 
 import argparse
 import curses
@@ -36,7 +45,7 @@ from helper import (
     show_panel_hide_on_keypress,
 )
 
-locale.setlocale(locale.LC_ALL, "")
+_ = locale.setlocale(locale.LC_ALL, "")
 
 HOME = os.path.expanduser("~")
 CONFIG_FILE = "%s/.config/convas/config" % HOME
@@ -203,7 +212,7 @@ class CourseSubMenu(Menu):
                 "Syllabus\n" + clean_up_html(syllabus), self.dashboard_syllabus, True
             )
             self.dashboard_syllabus.refresh()
-        else:  # if no syllabus, expand course_info
+        else:
             self.dashboard_course_info.resize(int(rows * 0.4) - 2, cols)
             self.dashboard_course_info.border()
 
@@ -331,7 +340,7 @@ class CourseSubMenu(Menu):
                 )
                 for assignment in self.assignments
             ]
-            right_side_str = [["Points   Created at", ""]]
+            right_side_str = [["Points   Created at   Due at   ", ""]]
 
             for assignment in self.assignments:
                 if ("submission" in assignment.keys()) and assignment["submission"][
@@ -342,7 +351,12 @@ class CourseSubMenu(Menu):
                     )
                 else:
                     points = f"{assignment['points_possible']}"
-                right_side_str += [[f"{points}   {assignment['created_at'][:10]}", ""]]
+                right_side_str += [
+                    [
+                        f"{points}   {assignment['created_at'][:10]}   {assignment['due_at'][:10] if assignment['due_at'] else assignment['created_at'][:10]}",
+                        "",
+                    ]
+                ]
                 right_offset = [
                     [(cols - len(str(right_str[0])) - 3), 0]
                     for right_str in right_side_str
@@ -499,7 +513,7 @@ class CourseSubMenu(Menu):
 
     def open_url(self, current_os: str, url: str):
         if current_os == "Linux":
-            cmd = ("xdg-open %s" % (url),)
+            cmd = ("firefox %s" % (url),)
         elif current_os == "Windows":
             cmd = ("start msedge %s" % (url),)
         elif current_os == "darwin":
@@ -521,6 +535,7 @@ class CourseSubMenu(Menu):
     @staticmethod
     def wrap_content_around_win(content: str | list[str], win: Any, is_header=False):
         h, w = win.getmaxyx()
+        Logger.info(f" {h} {w}")
         linenm = 1
         bolden = curses.A_BOLD if is_header else curses.A_NORMAL
         if isinstance(content, list):
@@ -751,7 +766,7 @@ class CourseSubMenu(Menu):
                 )
                 for assignment in self.assignments
             ]
-            right_side_str = [["Points   Created at", ""]]
+            right_side_str = [["Points   Created at   Due at   ", ""]]
 
             for assignment in self.assignments:
                 if ("submission" in assignment.keys()) and assignment["submission"][
@@ -762,7 +777,12 @@ class CourseSubMenu(Menu):
                     )
                 else:
                     points = f"{assignment['points_possible']}"
-                right_side_str += [[f"{points}   {assignment['created_at'][:10]}", ""]]
+                right_side_str += [
+                    [
+                        f"{points}   {assignment['created_at'][:10]}   {assignment['due_at'][:10] if assignment['due_at'] else assignment['created_at'][:10]}",
+                        "",
+                    ]
+                ]
                 right_offset = [
                     [(cols - len(str(right_str[0])) - 3), 0]
                     for right_str in right_side_str
@@ -1115,7 +1135,7 @@ class StatusBar(Menu):
         status_offset = 1
         for index, course in enumerate(self.courses):
             status_offset += 2
-            msg = "%d.%s " % (index, course[0])
+            msg = "%d.%s " % (index+1, course[0])
             self.window.addstr(1, status_offset + index, msg, curses.A_NORMAL)
             self.window.addstr(1, status_offset + index + 3, "")
             status_offset += len(course[0])
@@ -1133,7 +1153,7 @@ class StatusBar(Menu):
             self.window.border()
             for index, course in enumerate(self.courses):
                 mode = curses.A_REVERSE if index == self.position else curses.A_NORMAL
-                msg = "%d.%s" % (index, course[0])
+                msg = "%d.%s" % (index+1, course[0])
                 self.window.addstr(1, left_offset + index, msg + " " * 2, mode)
                 left_offset += len(course[0]) + 2
             self.window.refresh()
@@ -1213,15 +1233,14 @@ class TextInput:
 
 
 class Convas(object):
-    def __init__(self, stdscreen, install: str, reload: bool = False):
+    def __init__(self, stdscreen: curses.window, install: str, reload: bool = False):
         self.term_name = install or config.get_current_term()
         if not self.term_name:
             exit()
         should_install = install != ""
         self.window = stdscreen
         self.current_os = platform.system()
-        self.cache_dir = None
-        self.get_cache_dir()
+        self.cache_dir = self.get_cache_dir()
         self.url = config.get_domain()
         self.screen = stdscreen
         self.make_api_calls(
@@ -1276,7 +1295,7 @@ class Convas(object):
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
 
-        self.cache_dir = cache_dir + "/"
+        return cache_dir + "/"
 
     def make_api_calls(
         self,

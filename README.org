@@ -1,4 +1,6 @@
 * Convas 
+[[file:./home.png]]
+[[file:./sample.png]]
     Convas lets you use [[https://www.instructure.com/canvas][Canvas LMS]] in the terminal, with no dependencies other than Python. 
  
     I wanted to see how far I could go with just the Python standard library and the Canvas API. There's quite a lot built into it, including
